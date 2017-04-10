@@ -38,14 +38,12 @@ unsafe impl Sync for QLock {}
 
 pub struct QLockGuard<'r> {
     lock: &'r QLock,
-    node: &'r mut QLockNode
+    node: &'r mut QLockNode,
 }
 
 impl QLock {
     pub fn new() -> Self {
-        QLock {
-            head: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut()))
-        }
+        QLock { head: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())) }
     }
 
     pub fn lock<'r>(&'r self, node: &'r mut QLockNode) -> QLockGuard<'r> {
@@ -59,7 +57,10 @@ impl QLock {
                 node.wait();
             }
         }
-        QLockGuard { lock: self, node: node }
+        QLockGuard {
+            lock: self,
+            node: node,
+        }
     }
 }
 impl<'r> Drop for QLockGuard<'r> {
@@ -67,7 +68,10 @@ impl<'r> Drop for QLockGuard<'r> {
         unsafe {
             let mut next = self.node.next.load(Ordering::Acquire);
             if ptr::null_mut() == next {
-                if let Ok(_) = self.lock.head.compare_exchange(self.node, ptr::null_mut(), Ordering::AcqRel, Ordering::Acquire) {
+                if let Ok(_) = self.lock.head.compare_exchange(self.node,
+                                                               ptr::null_mut(),
+                                                               Ordering::AcqRel,
+                                                               Ordering::Acquire) {
                     return;
                 }
 
@@ -83,7 +87,7 @@ impl<'r> Drop for QLockGuard<'r> {
                     if counter >= iters {
                         break;
                     }
-                    for _ in 0 .. 1 << ((counter * max) / iters) {
+                    for _ in 0..1 << ((counter * max) / iters) {
                         backoff::pause();
                     }
                 }

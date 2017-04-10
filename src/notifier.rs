@@ -74,7 +74,7 @@ impl Notifier {
                     if counter >= NUM_PAUSE_SPINS {
                         break;
                     }
-                    for _ in 0 .. 1 << ((counter * MAX_PAUSE_LENGTH) / NUM_PAUSE_SPINS) {
+                    for _ in 0..1 << ((counter * MAX_PAUSE_LENGTH) / NUM_PAUSE_SPINS) {
                         backoff::pause();
                     }
                 }
