@@ -71,17 +71,21 @@ impl<'r> Drop for QLockGuard<'r> {
                     return;
                 }
 
-                let mut counter = 20;
+                let iters = 20;
+                let mut counter = 0;
+                let max = 9;
                 loop {
                     next = self.node.next.load(Ordering::Acquire);
                     if next != ptr::null_mut() {
                         break;
                     }
-                    counter -= 1;
-                    if 0 == counter {
+                    counter += 1;
+                    if counter >= iters {
                         break;
                     }
-                    backoff::pause();
+                    for _ in 0 .. 1 << if counter < max { counter } else { max } {
+                        backoff::pause();
+                    }
                 }
                 if next == ptr::null_mut() {
                     loop {
