@@ -50,11 +50,14 @@ impl QLock {
         node.notifier.reset();
         node.next.store(ptr::null_mut(), Ordering::Relaxed);
 
-        unsafe {
-            let head = self.head.swap(node, Ordering::AcqRel);
-            if head != ptr::null_mut() {
-                (*head).next.store(node, Ordering::Release);
-                node.wait();
+        if let Err(_) = self.head
+            .compare_exchange(ptr::null_mut(), node, Ordering::AcqRel, Ordering::Acquire) {
+            unsafe {
+                let head = self.head.swap(node, Ordering::AcqRel);
+                if head != ptr::null_mut() {
+                    (*head).next.store(node, Ordering::Release);
+                    node.wait();
+                }
             }
         }
         QLockGuard {
