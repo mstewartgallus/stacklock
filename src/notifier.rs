@@ -23,7 +23,7 @@ use backoff;
 use cacheline::CacheLineAligned;
 
 const TOTAL_SPINS: usize = 300;
-const PERCENT_YIELD: usize = 60;
+const PERCENT_YIELD: usize = 50;
 const MAX_PAUSE_LENGTH: usize = 3;
 const NUM_PAUSE_SPINS: usize = (TOTAL_SPINS * (100 - PERCENT_YIELD)) / 100;
 const NUM_YIELD_SPINS: usize = (TOTAL_SPINS * PERCENT_YIELD) / 100;
@@ -66,7 +66,6 @@ impl Notifier {
         'wait_loop: loop {
             {
                 let mut counter = 0;
-                let max = MAX_PAUSE_LENGTH;
                 loop {
                     if triggered() == self.triggered.load(Ordering::Relaxed) {
                         break 'wait_loop;
@@ -75,7 +74,7 @@ impl Notifier {
                     if counter >= NUM_PAUSE_SPINS {
                         break;
                     }
-                    for _ in 0 .. 1 << if counter < max { counter } else { max } {
+                    for _ in 0 .. 1 << ((counter * MAX_PAUSE_LENGTH) / NUM_PAUSE_SPINS) {
                         backoff::pause();
                     }
                 }

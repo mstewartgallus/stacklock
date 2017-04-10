@@ -71,7 +71,7 @@ impl<'r> Drop for QLockGuard<'r> {
                     return;
                 }
 
-                let iters = 20;
+                let iters = 10;
                 let mut counter = 0;
                 let max = 9;
                 loop {
@@ -83,7 +83,7 @@ impl<'r> Drop for QLockGuard<'r> {
                     if counter >= iters {
                         break;
                     }
-                    for _ in 0 .. 1 << if counter < max { counter } else { max } {
+                    for _ in 0 .. 1 << ((counter * max) / iters) {
                         backoff::pause();
                     }
                 }
