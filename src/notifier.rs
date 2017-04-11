@@ -23,7 +23,7 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const TOTAL_SPINS: usize = 300;
+const TOTAL_SPINS: usize = 400;
 const PERCENT_YIELD: usize = 50;
 const MAX_PAUSE_LENGTH: usize = 3;
 const NUM_PAUSE_SPINS: usize = (TOTAL_SPINS * (100 - PERCENT_YIELD)) / 100;
@@ -75,7 +75,7 @@ impl Notifier {
                     if counter >= NUM_PAUSE_SPINS {
                         break;
                     }
-                    for _ in 0..exp::exp(counter, NUM_PAUSE_SPINS, MAX_PAUSE_LENGTH) {
+                    for _ in 0..1 << exp::exp(counter, NUM_PAUSE_SPINS, MAX_PAUSE_LENGTH) {
                         backoff::pause();
                     }
                 }
