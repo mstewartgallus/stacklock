@@ -1,6 +1,6 @@
 extern crate qlock;
 
-use qlock::QLock;
+use qlock::{QLock, QLockNode};
 use std::sync::Arc;
 use std::thread;
 
@@ -14,7 +14,8 @@ fn test_as_lock() {
 
         let child = thread::spawn(move || {
             for _ in 0..20 {
-                lock_ref.acquire(|| {});
+                let mut node = QLockNode::new();
+                let _ = lock_ref.lock(&mut node);
             }
         });
         children.push(child);
