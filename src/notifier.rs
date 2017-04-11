@@ -19,6 +19,7 @@ use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
@@ -74,7 +75,7 @@ impl Notifier {
                     if counter >= NUM_PAUSE_SPINS {
                         break;
                     }
-                    for _ in 0..1 << ((counter * MAX_PAUSE_LENGTH) / NUM_PAUSE_SPINS) {
+                    for _ in 0..exp::exp(counter, NUM_PAUSE_SPINS, MAX_PAUSE_LENGTH) {
                         backoff::pause();
                     }
                 }

@@ -21,6 +21,7 @@ extern crate libc;
 mod backoff;
 mod cacheline;
 mod notifier;
+mod exp;
 
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::thread;
@@ -90,6 +91,7 @@ impl<'r> Drop for QLockGuard<'r> {
                     if counter >= iters {
                         break;
                     }
+
                     for _ in 0..1 << ((counter * max) / iters) {
                         backoff::pause();
                     }
