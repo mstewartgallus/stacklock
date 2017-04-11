@@ -88,9 +88,9 @@ impl<'r> Drop for QLockGuard<'r> {
                     return;
                 }
 
-                let iters = 10;
+                let iters = 5;
                 let mut counter = 0;
-                let max = 9;
+                let max = 10;
                 loop {
                     next = self.node.next.load(Ordering::Relaxed);
                     if next != ptr::null_mut() {
