@@ -23,7 +23,7 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const TOTAL_SPINS: usize = 500;
+const TOTAL_SPINS: usize = 70;
 const PERCENT_YIELD: usize = 50;
 const MAX_PAUSE_LENGTH: usize = 8;
 const NUM_PAUSE_SPINS: usize = (TOTAL_SPINS * (100 - PERCENT_YIELD)) / 100;
