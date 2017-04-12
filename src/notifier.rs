@@ -81,20 +81,6 @@ impl Notifier {
                 }
             }
 
-            {
-                let mut ii = NUM_PAUSE_SPINS;
-                loop {
-                    if triggered() == self.triggered.load(Ordering::Relaxed) {
-                        break 'wait_loop;
-                    }
-                    ii = ii - 1;
-                    if 0 == ii {
-                        break;
-                    }
-                    backoff::pause();
-                }
-            }
-
             // For some reason, falling back to yielding to another
             // thread is faster after a certain point.
             {
