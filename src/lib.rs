@@ -21,6 +21,7 @@ extern crate libc;
 mod backoff;
 mod cacheline;
 mod notifier;
+mod exp;
 
 use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -54,7 +55,7 @@ impl QLock {
         atomic::fence(Ordering::Release);
 
         if let Err(_) = self.head
-            .compare_exchange_weak(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed) {
+            .compare_exchange(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed) {
             unsafe {
                 let head = self.head.swap(node, Ordering::Relaxed);
                 if head != ptr::null_mut() {
@@ -89,6 +90,7 @@ impl<'r> Drop for QLockGuard<'r> {
 
                 let iters = 5;
                 let mut counter = 0;
+                let max = 10;
                 loop {
                     next = self.node.next.load(Ordering::Relaxed);
                     if next != ptr::null_mut() {
@@ -99,9 +101,7 @@ impl<'r> Drop for QLockGuard<'r> {
                         break;
                     }
 
-                    for _ in 0..1 << counter {
-                        // Unroll loop for better performance
-                        backoff::pause();
+                    for _ in 0..1 << ((counter * max) / iters) {
                         backoff::pause();
                     }
                 }
