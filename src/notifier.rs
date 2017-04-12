@@ -19,15 +19,11 @@ use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const TOTAL_SPINS: usize = 40;
-const PERCENT_YIELD: usize = 50;
-const MAX_PAUSE_LENGTH: usize = 8;
-const NUM_PAUSE_SPINS: usize = (TOTAL_SPINS * (100 - PERCENT_YIELD)) / 100;
-const NUM_YIELD_SPINS: usize = (TOTAL_SPINS * PERCENT_YIELD) / 100;
+const NUM_PAUSE_SPINS: usize = 8;
+const NUM_YIELD_SPINS: usize = 10;
 
 const SPINNING: u64 = 0;
 const NOT_SPINNING: u64 = 1;
@@ -66,7 +62,7 @@ impl Notifier {
     pub fn wait(&self) {
         'wait_loop: loop {
             {
-                let mut counter = 0;
+                let mut counter = NUM_PAUSE_SPINS;
                 loop {
                     if triggered() == self.triggered.load(Ordering::Relaxed) {
                         break 'wait_loop;
@@ -75,7 +71,10 @@ impl Notifier {
                     if counter >= NUM_PAUSE_SPINS {
                         break;
                     }
-                    for _ in 0..exp::exp(counter, NUM_PAUSE_SPINS, MAX_PAUSE_LENGTH) {
+                    for _ in 0..1 << counter {
+                        // Unroll loop for better performance
+                        backoff::pause();
+                        backoff::pause();
                         backoff::pause();
                     }
                 }
@@ -87,7 +86,7 @@ impl Notifier {
                     if triggered() == self.triggered.load(Ordering::Relaxed) {
                         break 'wait_loop;
                     }
-                    ii = ii - 1;
+                    ii -= 1;
                     if 0 == ii {
                         break;
                     }
