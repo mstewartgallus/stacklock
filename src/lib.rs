@@ -54,8 +54,8 @@ impl QLock {
 
         atomic::fence(Ordering::Release);
 
-        let mut head = self.head.load(Ordering::Relaxed);
-        {
+        if let Err(mut head) = self.head
+            .compare_exchange_weak(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed) {
             let mut counter = 0;
             loop {
                 if head == ptr::null_mut() {
@@ -72,15 +72,20 @@ impl QLock {
                         }
                     }
                 } else {
-                    head = self.head.swap(node, Ordering::Relaxed);
-                    if head != ptr::null_mut() {
-                        unsafe {
-                            atomic::fence(Ordering::Acquire);
-                            (*head).next.store(node, Ordering::Release);
-                            node.wait();
+                    match self.head
+                        .compare_exchange_weak(head, node, Ordering::Relaxed, Ordering::Relaxed) {
+                        Err(newhead) => {
+                            head = newhead;
+                        }
+                        Ok(_) => {
+                            unsafe {
+                                atomic::fence(Ordering::Acquire);
+                                (*head).next.store(node, Ordering::Release);
+                                node.wait();
+                            }
+                            break;
                         }
                     }
-                    break;
                 }
                 if counter < 3 {
                     for _ in 0..1 << counter {
