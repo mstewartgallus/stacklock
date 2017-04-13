@@ -54,14 +54,33 @@ impl QLock {
 
         atomic::fence(Ordering::Release);
 
-        if let Err(_) = self.head
+        if let Err(mut head) = self.head
             .compare_exchange(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed) {
-            unsafe {
-                let head = self.head.swap(node, Ordering::Relaxed);
-                if head != ptr::null_mut() {
-                    atomic::fence(Ordering::Acquire);
-                    (*head).next.store(node, Ordering::Release);
-                    node.wait();
+            let mut counter = 0;
+            loop {
+                match self.head
+                    .compare_exchange_weak(head, node, Ordering::Relaxed, Ordering::Relaxed) {
+                    Err(newhead) => {
+                        head = newhead;
+                    }
+                    Ok(_) => {
+                        unsafe {
+                            if head != ptr::null_mut() {
+                                atomic::fence(Ordering::Acquire);
+                                (*head).next.store(node, Ordering::Release);
+                                node.wait();
+                            }
+                        }
+                        break;
+                    }
+                }
+                if counter < 5 {
+                    for _ in 0..counter {
+                        backoff::pause();
+                    }
+                    counter += 1;
+                } else {
+                    thread::yield_now();
                 }
             }
         }
@@ -96,7 +115,6 @@ impl<'r> Drop for QLockGuard<'r> {
                     if next != ptr::null_mut() {
                         break;
                     }
-                    counter += 1;
                     if counter >= iters {
                         break;
                     }
@@ -104,6 +122,7 @@ impl<'r> Drop for QLockGuard<'r> {
                     for _ in 0..1 << ((counter * max) / iters) {
                         backoff::pause();
                     }
+                    counter += 1;
                 }
                 if next == ptr::null_mut() {
                     loop {
