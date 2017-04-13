@@ -58,24 +58,37 @@ impl QLock {
             .compare_exchange(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed) {
             let mut counter = 0;
             loop {
-                match self.head
-                    .compare_exchange_weak(head, node, Ordering::Relaxed, Ordering::Relaxed) {
-                    Err(newhead) => {
-                        head = newhead;
+                if head == ptr::null_mut() {
+                    match self.head
+                        .compare_exchange_weak(ptr::null_mut(),
+                                               node,
+                                               Ordering::Relaxed,
+                                               Ordering::Relaxed) {
+                        Err(newhead) => {
+                            head = newhead;
+                        }
+                        Ok(_) => {
+                            break;
+                        }
                     }
-                    Ok(_) => {
-                        unsafe {
-                            if head != ptr::null_mut() {
+                } else {
+                    match self.head
+                        .compare_exchange_weak(head, node, Ordering::Relaxed, Ordering::Relaxed) {
+                        Err(newhead) => {
+                            head = newhead;
+                        }
+                        Ok(_) => {
+                            unsafe {
                                 atomic::fence(Ordering::Acquire);
                                 (*head).next.store(node, Ordering::Release);
                                 node.wait();
                             }
+                            break;
                         }
-                        break;
                     }
                 }
-                if counter < 5 {
-                    for _ in 0..counter {
+                if counter < 3 {
+                    for _ in 0..1 << counter {
                         backoff::pause();
                     }
                     counter += 1;
