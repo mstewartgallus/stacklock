@@ -16,41 +16,44 @@ use libc;
 
 use std::mem;
 use std::sync::atomic;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 13;
+const NUM_LOOPS: usize = 20;
 const MAX_LOG_NUM_PAUSES: usize = 5;
 
-const SPINNING: u64 = 0;
-const NOT_SPINNING: u64 = 1;
+const SPINNING: u32 = 0;
+const NOT_SPINNING: u32 = 1;
+
+// Due to legacy issues on x86 operations on values smaller than 32
+// bits can be slow.
 
 /// A single waiter, single signaller event semaphore.  Signaled once
 /// and then thrown away.
 pub struct Notifier {
-    spin_state: CacheLineAligned<AtomicU64>,
-    triggered: CacheLineAligned<AtomicU64>,
+    spin_state: CacheLineAligned<AtomicU32>,
+    triggered: CacheLineAligned<AtomicU32>,
 }
 
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
-fn untriggered() -> u64 {
-    u64::max_value()
+fn untriggered() -> u32 {
+    u32::max_value()
 }
 // Make sure comparisons are against zero
-fn triggered() -> u64 {
+fn triggered() -> u32 {
     0
 }
 
 impl Notifier {
     pub fn new() -> Notifier {
         Notifier {
-            spin_state: CacheLineAligned::new(AtomicU64::new(SPINNING)),
-            triggered: CacheLineAligned::new(AtomicU64::new(untriggered())),
+            spin_state: CacheLineAligned::new(AtomicU32::new(SPINNING)),
+            triggered: CacheLineAligned::new(AtomicU32::new(untriggered())),
         }
     }
 
@@ -87,8 +90,6 @@ impl Notifier {
                 break;
             }
 
-            // We make sure that both 32 bit chunks change on store so
-            // this is okay on both little endian and big endian.
             let result: usize;
             unsafe {
                 let trig: usize = mem::transmute(&self.triggered);
