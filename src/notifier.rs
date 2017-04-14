@@ -22,8 +22,8 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 38;
-const MAX_LOG_NUM_PAUSES: usize = 7;
+const NUM_LOOPS: usize = 13;
+const MAX_LOG_NUM_PAUSES: usize = 5;
 
 const SPINNING: u64 = 0;
 const NOT_SPINNING: u64 = 1;
