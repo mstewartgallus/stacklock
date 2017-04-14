@@ -12,6 +12,8 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
+use std::cell::RefCell;
+
 use rand::Rng;
 use rand;
 
@@ -28,8 +30,11 @@ pub fn pause() {
     }
 }
 
+thread_local! {
+    static RNG: RefCell<rand::XorShiftRng> = RefCell::new(rand::weak_rng());
+}
+
 /// A thread random number
 pub fn thread_num(max: usize) -> usize {
-    let mut rng = rand::thread_rng();
-    return rng.gen_range(0, max + 1);
+    return RNG.with(|rng| rng.borrow_mut().gen_range(0, max + 1));
 }
