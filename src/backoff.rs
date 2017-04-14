@@ -12,6 +12,8 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
+use rand;
+
 #[inline]
 pub fn pause() {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -23,4 +25,10 @@ pub fn pause() {
     unsafe {
         asm!("yield" ::: "memory" : "volatile");
     }
+}
+
+/// A thread random number
+pub fn thread_num(max: usize) -> usize {
+    // Unevenly distributed but fast
+    return rand::random::<usize>() % (max + 1);
 }

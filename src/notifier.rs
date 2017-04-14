@@ -23,11 +23,10 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const TOTAL_SPINS: usize = 40;
-const PERCENT_YIELD: usize = 50;
-const MAX_PAUSE_LENGTH: usize = 9;
-const NUM_PAUSE_SPINS: usize = (TOTAL_SPINS * (100 - PERCENT_YIELD)) / 100;
-const NUM_YIELD_SPINS: usize = (TOTAL_SPINS * PERCENT_YIELD) / 100;
+const NUM_LOOPS: usize = 10;
+const MAX_LOG_NUM_PAUSES: usize = 8;
+
+const NUM_YIELD_LOOPS: usize = 32;
 
 const SPINNING: u64 = 0;
 const NOT_SPINNING: u64 = 1;
@@ -71,10 +70,12 @@ impl Notifier {
                     if triggered() == self.triggered.load(Ordering::Relaxed) {
                         break 'wait_loop;
                     }
-                    if counter >= NUM_PAUSE_SPINS {
+                    if counter >= NUM_LOOPS {
                         break;
                     }
-                    for _ in 0..exp::exp(counter, NUM_PAUSE_SPINS, MAX_PAUSE_LENGTH) {
+                    for _ in 0..backoff::thread_num(exp::exp(counter,
+                                                             NUM_LOOPS,
+                                                             MAX_LOG_NUM_PAUSES)) {
                         backoff::pause();
                     }
                     counter += 1;
@@ -84,7 +85,7 @@ impl Notifier {
             // For some reason, falling back to yielding to another
             // thread is faster after a certain point.
             {
-                let mut ii = NUM_YIELD_SPINS;
+                let mut ii = NUM_YIELD_LOOPS;
                 loop {
                     if triggered() == self.triggered.load(Ordering::Relaxed) {
                         break 'wait_loop;

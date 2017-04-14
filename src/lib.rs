@@ -17,6 +17,7 @@
 #[macro_use]
 extern crate syscall;
 extern crate libc;
+extern crate rand;
 
 mod backoff;
 mod cacheline;
@@ -25,11 +26,17 @@ mod exp;
 
 use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::time::Duration;
 use std::thread;
 use std::ptr;
 
 use cacheline::CacheLineAligned;
 use notifier::Notifier;
+
+const RELEASE_NUM_LOOPS: usize = 10;
+const RELEASE_MAX_LOG_NUM_PAUSES: usize = 6;
+
+const SLEEP_NS: usize = 500;
 
 /// An MCS queue-lock
 pub struct QLock {
@@ -54,46 +61,14 @@ impl QLock {
 
         atomic::fence(Ordering::Release);
 
-        if let Err(mut head) = self.head
+        if let Err(_) = self.head
             .compare_exchange_weak(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed) {
-            let mut counter = 0;
-            loop {
-                if head == ptr::null_mut() {
-                    match self.head
-                        .compare_exchange_weak(ptr::null_mut(),
-                                               node,
-                                               Ordering::Relaxed,
-                                               Ordering::Relaxed) {
-                        Err(newhead) => {
-                            head = newhead;
-                        }
-                        Ok(_) => {
-                            break;
-                        }
-                    }
-                } else {
-                    match self.head
-                        .compare_exchange_weak(head, node, Ordering::Relaxed, Ordering::Relaxed) {
-                        Err(newhead) => {
-                            head = newhead;
-                        }
-                        Ok(_) => {
-                            unsafe {
-                                atomic::fence(Ordering::Acquire);
-                                (*head).next.store(node, Ordering::Release);
-                                node.wait();
-                            }
-                            break;
-                        }
-                    }
-                }
-                if counter < 3 {
-                    for _ in 0..1 << counter {
-                        backoff::pause();
-                    }
-                    counter += 1;
-                } else {
-                    thread::yield_now();
+            let head = self.head.swap(node, Ordering::Relaxed);
+            if head != ptr::null_mut() {
+                unsafe {
+                    atomic::fence(Ordering::Acquire);
+                    (*head).next.store(node, Ordering::Release);
+                    node.wait();
                 }
             }
         }
@@ -120,19 +95,19 @@ impl<'r> Drop for QLockGuard<'r> {
                     return;
                 }
 
-                let iters = 5;
                 let mut counter = 0;
-                let max = 10;
                 loop {
                     next = self.node.next.load(Ordering::Relaxed);
                     if next != ptr::null_mut() {
                         break;
                     }
-                    if counter >= iters {
+                    if counter >= RELEASE_NUM_LOOPS {
                         break;
                     }
 
-                    for _ in 0..1 << ((counter * max) / iters) {
+                    for _ in 0..backoff::thread_num(exp::exp(counter,
+                                                             RELEASE_NUM_LOOPS,
+                                                             RELEASE_MAX_LOG_NUM_PAUSES)) {
                         backoff::pause();
                     }
                     counter += 1;
@@ -143,7 +118,7 @@ impl<'r> Drop for QLockGuard<'r> {
                         if next != ptr::null_mut() {
                             break;
                         }
-                        thread::yield_now();
+                        thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
                     }
                 }
             }
