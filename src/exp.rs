@@ -14,7 +14,6 @@
 //
 
 /// approximates floor(2^(counter * n / max_counter))
-#[inline]
 pub fn exp(counter: usize, max_counter: usize, n: usize) -> usize {
     let counter_n = counter * n;
     let floor = counter_n / max_counter;

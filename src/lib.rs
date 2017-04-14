@@ -67,7 +67,6 @@ impl QLock {
             let head = self.head.swap(node, Ordering::Relaxed);
             if head != ptr::null_mut() {
                 unsafe {
-                    atomic::fence(Ordering::Acquire);
                     (*head).next.store(node, Ordering::Release);
                     node.wait();
                 }
@@ -87,43 +86,40 @@ impl<'r> Drop for QLockGuard<'r> {
         unsafe {
             atomic::fence(Ordering::Release);
 
-            let mut next = self.node.next.load(Ordering::Relaxed);
-            if ptr::null_mut() == next {
-                if let Ok(_) = self.lock.head.compare_exchange(self.node,
-                                                               ptr::null_mut(),
-                                                               Ordering::Relaxed,
-                                                               Ordering::Relaxed) {
-                    return;
+            if let Ok(_) = self.lock.head.compare_exchange(self.node,
+                                                           ptr::null_mut(),
+                                                           Ordering::Relaxed,
+                                                           Ordering::Relaxed) {
+                return;
+            }
+
+            let mut next;
+            let mut counter = 0;
+            loop {
+                next = self.node.next.load(Ordering::Relaxed);
+                if next != ptr::null_mut() {
+                    break;
+                }
+                if counter >= RELEASE_NUM_LOOPS {
+                    break;
                 }
 
-                let mut counter = 0;
+                for _ in 0..backoff::thread_num(exp::exp(counter,
+                                                         RELEASE_NUM_LOOPS,
+                                                         RELEASE_MAX_LOG_NUM_PAUSES)) {
+                    backoff::pause();
+                }
+                counter += 1;
+            }
+            if next == ptr::null_mut() {
                 loop {
                     next = self.node.next.load(Ordering::Relaxed);
                     if next != ptr::null_mut() {
                         break;
                     }
-                    if counter >= RELEASE_NUM_LOOPS {
-                        break;
-                    }
-
-                    for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                             RELEASE_NUM_LOOPS,
-                                                             RELEASE_MAX_LOG_NUM_PAUSES)) {
-                        backoff::pause();
-                    }
-                    counter += 1;
-                }
-                if next == ptr::null_mut() {
-                    loop {
-                        next = self.node.next.load(Ordering::Relaxed);
-                        if next != ptr::null_mut() {
-                            break;
-                        }
-                        thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
-                    }
+                    thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
                 }
             }
-
             (*next).signal();
         }
     }
