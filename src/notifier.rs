@@ -14,7 +14,6 @@
 //
 use libc;
 
-use std::thread;
 use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,10 +22,8 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 10;
-const MAX_LOG_NUM_PAUSES: usize = 8;
-
-const NUM_YIELD_LOOPS: usize = 32;
+const NUM_LOOPS: usize = 38;
+const MAX_LOG_NUM_PAUSES: usize = 7;
 
 const SPINNING: u64 = 0;
 const NOT_SPINNING: u64 = 1;
@@ -79,22 +76,6 @@ impl Notifier {
                         backoff::pause();
                     }
                     counter += 1;
-                }
-            }
-
-            // For some reason, falling back to yielding to another
-            // thread is faster after a certain point.
-            {
-                let mut ii = NUM_YIELD_LOOPS;
-                loop {
-                    if triggered() == self.triggered.load(Ordering::Relaxed) {
-                        break 'wait_loop;
-                    }
-                    ii = ii - 1;
-                    if 0 == ii {
-                        break;
-                    }
-                    thread::yield_now();
                 }
             }
 

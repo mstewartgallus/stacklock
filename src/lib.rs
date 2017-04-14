@@ -34,9 +34,9 @@ use cacheline::CacheLineAligned;
 use notifier::Notifier;
 
 const RELEASE_NUM_LOOPS: usize = 10;
-const RELEASE_MAX_LOG_NUM_PAUSES: usize = 6;
+const RELEASE_MAX_LOG_NUM_PAUSES: usize = 7;
 
-const SLEEP_NS: usize = 500;
+const SLEEP_NS: usize = 200;
 
 /// An MCS queue-lock
 pub struct QLock {

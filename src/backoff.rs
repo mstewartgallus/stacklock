@@ -12,6 +12,7 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
+use rand::Rng;
 use rand;
 
 #[inline]
@@ -29,6 +30,6 @@ pub fn pause() {
 
 /// A thread random number
 pub fn thread_num(max: usize) -> usize {
-    // Unevenly distributed but fast
-    return rand::random::<usize>() % (max + 1);
+    let mut rng = rand::thread_rng();
+    return rng.gen_range(0, max + 1);
 }
