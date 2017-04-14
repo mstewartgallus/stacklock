@@ -4,7 +4,7 @@ extern crate qlock;
 
 mod contend;
 
-use qlock::{QLock, QLockNode};
+use qlock::QLock;
 
 use contend::{TestCase, contend};
 
@@ -17,8 +17,7 @@ impl TestCase for QLockTestCase {
         QLock::new()
     }
     fn do_stuff_with_value(value: &QLock) {
-        let mut node = QLockNode::new();
-        let _ = value.lock(&mut node);
+        let _ = value.lock();
     }
 }
 
