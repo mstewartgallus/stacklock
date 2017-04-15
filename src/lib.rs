@@ -28,14 +28,13 @@ mod cacheline;
 mod notifier;
 mod exp;
 
+use std::mem;
 use std::boxed::Box;
 use std::cell::RefCell;
-use std::marker::PhantomData;
-use std::mem;
-use std::ptr;
 use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
-use std::thread;
 use std::time::Duration;
+use std::thread;
+use std::ptr;
 
 use cacheline::CacheLineAligned;
 use notifier::Notifier;
@@ -56,7 +55,7 @@ unsafe impl Send for QLock {}
 unsafe impl Sync for QLock {}
 
 pub struct QLockGuard<'r> {
-    lock: PhantomData<&'r QLock>,
+    lock: &'r QLock,
     node: *mut QLockNode,
 }
 
@@ -80,7 +79,7 @@ impl QLock {
             set_local_node(head);
 
             QLockGuard {
-                lock: PhantomData,
+                lock: self,
                 node: node,
             }
         }
