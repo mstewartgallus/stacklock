@@ -20,18 +20,13 @@ extern crate syscall;
 extern crate libc;
 extern crate rand;
 
-#[macro_use]
-extern crate lazy_static;
-
 mod backoff;
 mod cacheline;
 mod notifier;
 mod exp;
 
-use std::mem;
-use std::boxed::Box;
-use std::cell::RefCell;
-use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use std::sync::atomic;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::time::Duration;
 use std::thread;
 use std::ptr;
@@ -39,15 +34,12 @@ use std::ptr;
 use cacheline::CacheLineAligned;
 use notifier::Notifier;
 
-const ALLOCATE_NUM_LOOPS: usize = 100;
-const ALLOCATE_MAX_LOG_NUM_PAUSES: usize = 7;
+const RELEASE_NUM_LOOPS: usize = 10;
+const RELEASE_MAX_LOG_NUM_PAUSES: usize = 7;
 
-const DEALLOCATE_NUM_LOOPS: usize = 100;
-const DEALLOCATE_MAX_LOG_NUM_PAUSES: usize = 7;
+const SLEEP_NS: usize = 200;
 
-const SLEEP_NS: usize = 400;
-
-/// A CLH queue-lock
+/// An MCS queue-lock
 pub struct QLock {
     head: CacheLineAligned<AtomicPtr<QLockNode>>,
 }
@@ -56,191 +48,91 @@ unsafe impl Sync for QLock {}
 
 pub struct QLockGuard<'r> {
     lock: &'r QLock,
-    node: *mut QLockNode,
+    node: &'r mut QLockNode,
 }
 
 impl QLock {
     pub fn new() -> Self {
-        unsafe {
-            let node = allocate_node();
-            (*node).signal();
-            QLock { head: CacheLineAligned::new(AtomicPtr::new(node)) }
-        }
+        QLock { head: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())) }
     }
 
-    pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
-        unsafe {
-            let node = get_local_node();
+    pub fn lock<'r>(&'r self, node: &'r mut QLockNode) -> QLockGuard<'r> {
+        node.notifier.reset();
+        node.next.store(ptr::null_mut(), Ordering::Relaxed);
 
-            let head = self.head.swap(node, Ordering::AcqRel);
+        atomic::fence(Ordering::Release);
 
-            (*head).wait();
-
-            set_local_node(head);
-
-            QLockGuard {
-                lock: self,
-                node: node,
+        let mut head = ptr::null_mut();
+        if let Err(_) = self.head
+            .compare_exchange_weak(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed) {
+            head = self.head.swap(node, Ordering::Relaxed);
+        }
+        if head != ptr::null_mut() {
+            unsafe {
+                (*head).next.store(node, Ordering::Release);
+                node.wait();
             }
         }
-    }
-}
-impl<'r> Drop for QLock {
-    fn drop(&mut self) {
-        unsafe {
-            NodeBox::from_raw(self.head.load(Ordering::Acquire));
+
+        atomic::fence(Ordering::Acquire);
+
+        QLockGuard {
+            lock: self,
+            node: node,
         }
     }
 }
-
 impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         unsafe {
-            (*self.node).signal();
-        }
-    }
-}
-thread_local! {
-    static VALUE: RefCell<Option<NodeBox>> = RefCell::new(Some(NodeBox::new()));
-}
+            atomic::fence(Ordering::Release);
 
-fn get_local_node() -> *mut QLockNode {
-    let mut value = None;
-    VALUE.with(|x| mem::swap(&mut value, &mut *x.borrow_mut()));
-    return NodeBox::into_raw(value.unwrap());
-}
-
-unsafe fn set_local_node(node: *mut QLockNode) {
-    VALUE.with(|x| *x.borrow_mut() = Some(NodeBox::from_raw(node)));
-}
-
-struct NodeBox {
-    node: *mut QLockNode,
-}
-impl NodeBox {
-    fn new() -> Self {
-        NodeBox { node: allocate_node() }
-    }
-    fn into_raw(mut self) -> *mut QLockNode {
-        let mut x = ptr::null_mut();
-        mem::swap(&mut self.node, &mut x);
-        return x;
-    }
-
-    unsafe fn from_raw(node: *mut QLockNode) -> Self {
-        NodeBox { node: node }
-    }
-}
-impl Drop for NodeBox {
-    fn drop(&mut self) {
-        if self.node != ptr::null_mut() {
-            unsafe {
-                deallocate_node(self.node);
-            }
-        }
-    }
-}
-
-unsafe fn from_tagged(tagged: u64) -> (*mut QLockNode, u32) {
-    let ptr = mem::transmute((tagged & ((1 << 42) - 1)) << 6);
-    let tag = (tagged >> 42) as u32;
-    return (ptr, tag);
-}
-
-unsafe fn to_tagged(ptr: *mut QLockNode, tag: u32) -> u64 {
-    let mut ptr_bits: u64 = mem::transmute(ptr);
-    ptr_bits = ptr_bits >> 6;
-    return ptr_bits | (tag as u64) << 42;
-}
-
-lazy_static! {
-    static ref FREE_LIST: AtomicU64 = AtomicU64::new(0);
-}
-
-fn allocate_node() -> *mut QLockNode {
-    unsafe {
-        let free_list = &FREE_LIST;
-
-        let mut list = free_list.load(Ordering::Acquire);
-        let mut counter = 0;
-        loop {
-            let (head_ptr, head_tag) = from_tagged(list);
-            if head_ptr == ptr::null_mut() {
-                let boxed = Box::new(QLockNode::new());
-                return Box::into_raw(boxed);
+            if let Ok(_) = self.lock.head.compare_exchange(self.node,
+                                                           ptr::null_mut(),
+                                                           Ordering::Relaxed,
+                                                           Ordering::Relaxed) {
+                return;
             }
 
-            let next = (*head_ptr).next.load(Ordering::Acquire);
-            match free_list.compare_exchange_weak(list,
-                                                  to_tagged(next, head_tag + 1),
-                                                  Ordering::AcqRel,
-                                                  Ordering::Acquire) {
-                Err(newlist) => {
-                    list = newlist;
-                }
-                Ok(_) => {
+            let mut next;
+            let mut counter = 0;
+            loop {
+                next = self.node.next.load(Ordering::Relaxed);
+                if next != ptr::null_mut() {
                     break;
                 }
-            }
-            if counter < ALLOCATE_NUM_LOOPS {
+                if counter >= RELEASE_NUM_LOOPS {
+                    break;
+                }
+
                 for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                         ALLOCATE_NUM_LOOPS,
-                                                         ALLOCATE_MAX_LOG_NUM_PAUSES)) {
+                                                         RELEASE_NUM_LOOPS,
+                                                         RELEASE_MAX_LOG_NUM_PAUSES)) {
                     backoff::pause();
                 }
                 counter += 1;
-            } else {
-                thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
             }
-        }
-        let (head_ptr, _) = from_tagged(list);
-        (*head_ptr).notifier.reset();
-        (*head_ptr).next.store(ptr::null_mut(), Ordering::Relaxed);
-        return head_ptr;
-    }
-}
-
-unsafe fn deallocate_node(node: *mut QLockNode) {
-    let free_list = &FREE_LIST;
-
-    let mut list = free_list.load(Ordering::Acquire);
-    let mut counter = 0;
-    loop {
-        let (head_ptr, head_tag) = from_tagged(list);
-
-        (*node).next.store(head_ptr, Ordering::Release);
-
-        match free_list.compare_exchange_weak(list,
-                                              to_tagged(node, head_tag + 1),
-                                              Ordering::AcqRel,
-                                              Ordering::Acquire) {
-            Err(newlist) => {
-                list = newlist;
+            if next == ptr::null_mut() {
+                loop {
+                    next = self.node.next.load(Ordering::Relaxed);
+                    if next != ptr::null_mut() {
+                        break;
+                    }
+                    thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
+                }
             }
-            Ok(_) => {
-                break;
-            }
-        }
-        if counter < DEALLOCATE_NUM_LOOPS {
-            for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                     DEALLOCATE_NUM_LOOPS,
-                                                     DEALLOCATE_MAX_LOG_NUM_PAUSES)) {
-                backoff::pause();
-            }
-            counter += 1;
-        } else {
-            thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
+            (*next).signal();
         }
     }
 }
 
-struct QLockNode {
+pub struct QLockNode {
     notifier: Notifier,
     next: CacheLineAligned<AtomicPtr<QLockNode>>,
 }
 
 impl QLockNode {
-    fn new() -> QLockNode {
+    pub fn new() -> QLockNode {
         QLockNode {
             notifier: Notifier::new(),
             next: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())),
