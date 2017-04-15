@@ -55,7 +55,12 @@ impl Notifier {
             {
                 let mut counter = 0;
                 loop {
-                    if TRIGGERED == self.state.load(Ordering::Relaxed) {
+                    if self.state
+                        .compare_exchange_weak(TRIGGERED,
+                                               SPINNING,
+                                               Ordering::Relaxed,
+                                               Ordering::Relaxed)
+                        .is_ok() {
                         break 'wait_loop;
                     }
                     if counter >= NUM_LOOPS {
