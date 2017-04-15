@@ -34,9 +34,6 @@ use std::ptr;
 use cacheline::CacheLineAligned;
 use notifier::Notifier;
 
-const LOCK_NUM_LOOPS: usize = 5;
-const LOCK_MAX_LOG_NUM_PAUSES: usize = 6;
-
 const RELEASE_NUM_LOOPS: usize = 10;
 const RELEASE_MAX_LOG_NUM_PAUSES: usize = 7;
 
@@ -65,33 +62,15 @@ impl QLock {
 
         atomic::fence(Ordering::Release);
 
-        let mut counter = 0;
-        loop {
-            if self.head
-                .compare_exchange_weak(ptr::null_mut(),
-                                       node,
-                                       Ordering::Relaxed,
-                                       Ordering::Relaxed)
-                .is_ok() {
-                break;
-            }
-
-            if counter < LOCK_NUM_LOOPS {
-                for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                         LOCK_NUM_LOOPS,
-                                                         LOCK_MAX_LOG_NUM_PAUSES)) {
-                    backoff::pause();
+        if self.head
+            .compare_exchange_weak(ptr::null_mut(), node, Ordering::Relaxed, Ordering::Relaxed)
+            .is_err() {
+            let head = self.head.swap(node, Ordering::Relaxed);
+            if head != ptr::null_mut() {
+                unsafe {
+                    (*head).next.store(node, Ordering::Release);
+                    node.wait();
                 }
-                counter += 1;
-            } else {
-                let head = self.head.swap(node, Ordering::Relaxed);
-                if head != ptr::null_mut() {
-                    unsafe {
-                        (*head).next.store(node, Ordering::Release);
-                        node.wait();
-                    }
-                }
-                break;
             }
         }
 
