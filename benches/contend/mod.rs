@@ -35,7 +35,7 @@ pub fn contend<T: TestCase + 'static>(b: &mut test::Bencher) {
                     break;
                 }
 
-                for _ in 0..800 {
+                for _ in 0..1600 {
                     T::do_stuff_with_value(lock_ref.borrow());
                 }
 
