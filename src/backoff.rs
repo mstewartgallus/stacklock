@@ -13,6 +13,7 @@
 // permissions and limitations under the License.
 //
 use std::cell::RefCell;
+use std::usize;
 
 use rand;
 
@@ -39,7 +40,7 @@ thread_local! {
 pub fn thread_num(max: usize) -> usize {
     return RNG.with(|rng| {
         let value = *rng.borrow();
-        *rng.borrow_mut() = 6364136223846793005 * value + 1442695040888963407;
+        *rng.borrow_mut() = 6364136223846793005u64.wrapping_mul(value).wrapping_add(1442695040888963407);
         value
     }) as usize % max;
 }

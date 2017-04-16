@@ -14,7 +14,10 @@
 //
 
 /// approximates floor(2^(counter * n / max_counter))
-pub fn exp(counter: usize, max_counter: usize, n: usize) -> usize {
+pub fn exp(mut counter: usize, max_counter: usize, n: usize) -> usize {
+    if counter == 0 {
+        counter = 1;
+    }
     let counter_n = counter * n;
     let floor = counter_n / max_counter;
     let ceil = 1 + (counter_n - 1) / max_counter;

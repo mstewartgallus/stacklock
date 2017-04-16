@@ -22,11 +22,12 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 40;
+const NUM_LOOPS: usize = 30;
 const MAX_LOG_NUM_PAUSES: usize = 7;
 
-const SPINNING: u32 = 0;
-const NOT_SPINNING: u32 = 1;
+const TRIGGERED: u32 = 0;
+const SPINNING: u32 = 1;
+const WAITING: u32 = 2;
 
 // Due to legacy issues on x86 operations on values smaller than 32
 // bits can be slow.
@@ -34,32 +35,19 @@ const NOT_SPINNING: u32 = 1;
 /// A single waiter, single signaller event semaphore.  Signaled once
 /// and then thrown away.
 pub struct Notifier {
-    spin_state: CacheLineAligned<AtomicU32>,
-    triggered: CacheLineAligned<AtomicU32>,
+    state: CacheLineAligned<AtomicU32>,
 }
 
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
-fn untriggered() -> u32 {
-    u32::max_value()
-}
-// Make sure comparisons are against zero
-fn triggered() -> u32 {
-    0
-}
-
 impl Notifier {
     pub fn new() -> Notifier {
-        Notifier {
-            spin_state: CacheLineAligned::new(AtomicU32::new(SPINNING)),
-            triggered: CacheLineAligned::new(AtomicU32::new(untriggered())),
-        }
+        Notifier { state: CacheLineAligned::new(AtomicU32::new(SPINNING)) }
     }
 
     pub fn reset(&self) {
-        self.spin_state.store(SPINNING, Ordering::Relaxed);
-        self.triggered.store(untriggered(), Ordering::Relaxed);
+        self.state.store(SPINNING, Ordering::Release);
     }
 
     pub fn wait(&self) {
@@ -67,7 +55,12 @@ impl Notifier {
             {
                 let mut counter = 0;
                 loop {
-                    if triggered() == self.triggered.load(Ordering::Relaxed) {
+                    if self.state
+                        .compare_exchange_weak(TRIGGERED,
+                                               SPINNING,
+                                               Ordering::Relaxed,
+                                               Ordering::Relaxed)
+                        .is_ok() {
                         break 'wait_loop;
                     }
                     if counter >= NUM_LOOPS {
@@ -82,18 +75,16 @@ impl Notifier {
                 }
             }
 
-            self.spin_state.store(NOT_SPINNING, Ordering::Relaxed);
-
-            atomic::fence(Ordering::AcqRel);
-
-            if triggered() == self.triggered.load(Ordering::Relaxed) {
+            if self.state
+                .compare_exchange(SPINNING, WAITING, Ordering::Relaxed, Ordering::Relaxed)
+                .is_err() {
                 break;
             }
 
             let result: usize;
             unsafe {
-                let trig: usize = mem::transmute(&self.triggered);
-                result = syscall!(FUTEX, trig, FUTEX_WAIT_PRIVATE, untriggered(), 0);
+                let trig: usize = mem::transmute(&self.state);
+                result = syscall!(FUTEX, trig, FUTEX_WAIT_PRIVATE, WAITING, 0);
             }
             // woken up
             if 0 == result {
@@ -104,25 +95,25 @@ impl Notifier {
                 break;
             }
 
-            self.spin_state.store(SPINNING, Ordering::Relaxed);
+            if self.state
+                .compare_exchange(WAITING, SPINNING, Ordering::Relaxed, Ordering::Relaxed)
+                .is_err() {
+                break;
+            }
         }
         atomic::fence(Ordering::Acquire);
     }
 
     pub fn signal(&self) {
-        // If the waiter was spinning we can avoid a syscall.
-        atomic::fence(Ordering::Release);
-
-        self.triggered.store(triggered(), Ordering::Relaxed);
-
-        atomic::fence(Ordering::AcqRel);
-
-        if SPINNING == self.spin_state.load(Ordering::Relaxed) {
+        if self.state
+            .compare_exchange_weak(SPINNING, TRIGGERED, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok() {
             return;
         }
 
+        self.state.store(TRIGGERED, Ordering::Relaxed);
         unsafe {
-            let trig: usize = mem::transmute(&self.triggered);
+            let trig: usize = mem::transmute(&self.state);
             syscall!(FUTEX, trig, FUTEX_WAKE_PRIVATE, 1);
         }
     }
