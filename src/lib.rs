@@ -71,15 +71,13 @@ impl QLock {
 
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
         LOCAL_NODE_STASH.with(|node_store| unsafe {
-            let mut opt = None;
-            mem::swap(&mut opt, &mut *node_store.borrow_mut());
-            let node = NodeBox::into_raw(opt.unwrap());
+            let node = NodeBox::into_raw(ptr::read(&*node_store.borrow_mut()));
 
             let head = self.head.swap(node, Ordering::AcqRel);
 
             (*head).wait();
 
-            *node_store.borrow_mut() = Some(NodeBox::from_raw(head));
+            ptr::write(&mut *node_store.borrow_mut(), NodeBox::from_raw(head));
 
             QLockGuard {
                 lock: PhantomData,
@@ -105,7 +103,7 @@ impl<'r> Drop for QLockGuard<'r> {
 }
 
 thread_local! {
-    static LOCAL_NODE_STASH: RefCell<Option<NodeBox>> = RefCell::new(Some(NodeBox::new()));
+    static LOCAL_NODE_STASH: RefCell<NodeBox> = RefCell::new(NodeBox::new());
 }
 
 struct NodeBox {
