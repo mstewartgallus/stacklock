@@ -22,12 +22,11 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 60;
+const NUM_LOOPS: usize = 40;
 const MAX_LOG_NUM_PAUSES: usize = 7;
 
-const TRIGGERED: u32 = 0;
-const SPINNING: u32 = 1;
-const WAITING: u32 = 2;
+const SPINNING: u32 = 0;
+const NOT_SPINNING: u32 = 1;
 
 // Due to legacy issues on x86 operations on values smaller than 32
 // bits can be slow.
@@ -35,19 +34,32 @@ const WAITING: u32 = 2;
 /// A single waiter, single signaller event semaphore.  Signaled once
 /// and then thrown away.
 pub struct Notifier {
-    state: CacheLineAligned<AtomicU32>,
+    spin_state: CacheLineAligned<AtomicU32>,
+    triggered: CacheLineAligned<AtomicU32>,
 }
 
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
+fn untriggered() -> u32 {
+    u32::max_value()
+}
+// Make sure comparisons are against zero
+fn triggered() -> u32 {
+    0
+}
+
 impl Notifier {
     pub fn new() -> Notifier {
-        Notifier { state: CacheLineAligned::new(AtomicU32::new(SPINNING)) }
+        Notifier {
+            spin_state: CacheLineAligned::new(AtomicU32::new(SPINNING)),
+            triggered: CacheLineAligned::new(AtomicU32::new(untriggered())),
+        }
     }
 
     pub fn reset(&self) {
-        self.state.store(SPINNING, Ordering::Relaxed);
+        self.spin_state.store(SPINNING, Ordering::Relaxed);
+        self.triggered.store(untriggered(), Ordering::Relaxed);
     }
 
     pub fn wait(&self) {
@@ -55,7 +67,7 @@ impl Notifier {
             {
                 let mut counter = 0;
                 loop {
-                    if TRIGGERED == self.state.load(Ordering::Relaxed) {
+                    if triggered() == self.triggered.load(Ordering::Relaxed) {
                         break 'wait_loop;
                     }
                     if counter >= NUM_LOOPS {
@@ -70,16 +82,18 @@ impl Notifier {
                 }
             }
 
-            if self.state
-                .compare_exchange(SPINNING, WAITING, Ordering::Relaxed, Ordering::Relaxed)
-                .is_err() {
+            self.spin_state.store(NOT_SPINNING, Ordering::Relaxed);
+
+            atomic::fence(Ordering::AcqRel);
+
+            if triggered() == self.triggered.load(Ordering::Relaxed) {
                 break;
             }
 
             let result: usize;
             unsafe {
-                let trig: usize = mem::transmute(&self.state);
-                result = syscall!(FUTEX, trig, FUTEX_WAIT_PRIVATE, WAITING, 0);
+                let trig: usize = mem::transmute(&self.triggered);
+                result = syscall!(FUTEX, trig, FUTEX_WAIT_PRIVATE, untriggered(), 0);
             }
             // woken up
             if 0 == result {
@@ -90,25 +104,25 @@ impl Notifier {
                 break;
             }
 
-            if self.state
-                .compare_exchange(WAITING, SPINNING, Ordering::Relaxed, Ordering::Relaxed)
-                .is_err() {
-                break;
-            }
+            self.spin_state.store(SPINNING, Ordering::Relaxed);
         }
         atomic::fence(Ordering::Acquire);
     }
 
     pub fn signal(&self) {
-        if self.state
-            .compare_exchange_weak(SPINNING, TRIGGERED, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok() {
+        // If the waiter was spinning we can avoid a syscall.
+        atomic::fence(Ordering::Release);
+
+        self.triggered.store(triggered(), Ordering::Relaxed);
+
+        atomic::fence(Ordering::AcqRel);
+
+        if SPINNING == self.spin_state.load(Ordering::Relaxed) {
             return;
         }
 
-        self.state.store(TRIGGERED, Ordering::Relaxed);
         unsafe {
-            let trig: usize = mem::transmute(&self.state);
+            let trig: usize = mem::transmute(&self.triggered);
             syscall!(FUTEX, trig, FUTEX_WAKE_PRIVATE, 1);
         }
     }
