@@ -94,18 +94,12 @@ impl<'r> Drop for QLockGuard<'r> {
                 return;
             }
 
-            let mut next = ptr::null_mut();
+            let mut next;
             let mut counter = 0;
             loop {
-                match self.node.next.compare_exchange_weak(ptr::null_mut(),
-                                                           ptr::null_mut(),
-                                                           Ordering::Relaxed,
-                                                           Ordering::Relaxed) {
-                    Ok(_) => {}
-                    Err(x) => {
-                        next = x;
-                        break;
-                    }
+                next = self.node.next.load(Ordering::Relaxed);
+                if next != ptr::null_mut() {
+                    break;
                 }
 
                 if counter >= RELEASE_NUM_LOOPS {
@@ -121,17 +115,10 @@ impl<'r> Drop for QLockGuard<'r> {
             }
             if next == ptr::null_mut() {
                 loop {
-                    match self.node.next.compare_exchange_weak(ptr::null_mut(),
-                                                               ptr::null_mut(),
-                                                               Ordering::Relaxed,
-                                                               Ordering::Relaxed) {
-                        Ok(_) => {}
-                        Err(x) => {
-                            next = x;
-                            break;
-                        }
+                    next = self.node.next.load(Ordering::Relaxed);
+                    if next != ptr::null_mut() {
+                        break;
                     }
-
                     thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
                 }
             }
