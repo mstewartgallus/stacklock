@@ -22,7 +22,7 @@ use exp;
 use backoff;
 use cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 30;
+const NUM_LOOPS: usize = 60;
 const MAX_LOG_NUM_PAUSES: usize = 7;
 
 const TRIGGERED: u32 = 0;
