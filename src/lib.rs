@@ -73,7 +73,6 @@ impl QLock {
         LOCAL_NODE_STASH.with(|node_store| unsafe {
             let node = NodeBox::into_raw(ptr::read(&*node_store.borrow_mut()));
 
-            (*node).notifier.reset();
             let head = self.head.swap(node, Ordering::AcqRel);
 
             (*head).wait();

@@ -46,22 +46,18 @@ impl Notifier {
         Notifier { state: CacheLineAligned::new(AtomicU32::new(SPINNING)) }
     }
 
-    pub fn reset(&self) {
-        self.state.store(SPINNING, Ordering::Release);
-    }
-
     pub fn wait(&self) {
-        'wait_loop: loop {
+        loop {
             {
                 let mut counter = 0;
                 loop {
                     if self.state
                         .compare_exchange_weak(TRIGGERED,
                                                SPINNING,
-                                               Ordering::Relaxed,
+                                               Ordering::AcqRel,
                                                Ordering::Relaxed)
                         .is_ok() {
-                        break 'wait_loop;
+                        return;
                     }
                     if counter >= NUM_LOOPS {
                         break;
@@ -102,6 +98,7 @@ impl Notifier {
             }
         }
         atomic::fence(Ordering::Acquire);
+        self.state.store(SPINNING, Ordering::Release);
     }
 
     pub fn signal(&self) {
