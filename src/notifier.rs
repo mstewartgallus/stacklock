@@ -47,17 +47,17 @@ impl Notifier {
     }
 
     pub fn wait(&self) {
-        loop {
+        'wait_loop: loop {
             {
                 let mut counter = 0;
                 loop {
                     if self.state
                         .compare_exchange_weak(TRIGGERED,
                                                SPINNING,
-                                               Ordering::AcqRel,
+                                               Ordering::Relaxed,
                                                Ordering::Relaxed)
                         .is_ok() {
-                        return;
+                        break 'wait_loop;
                     }
                     if counter >= NUM_LOOPS {
                         break;
@@ -102,6 +102,8 @@ impl Notifier {
     }
 
     pub fn signal(&self) {
+        atomic::fence(Ordering::Release);
+
         if self.state
             .compare_exchange_weak(SPINNING, TRIGGERED, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok() {
