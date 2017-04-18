@@ -73,6 +73,10 @@ impl QLock {
         LOCAL_NODE_STASH.with(|node_store| unsafe {
             let node = NodeBox::into_raw(ptr::read(&*node_store.borrow_mut()));
 
+            // This can't be avoided unless SeqCst orderings are used.
+            // The issue is that we reset the notifier in a different
+            // thread than this one.
+            (*node).notifier.reset();
             let head = self.head.swap(node, Ordering::AcqRel);
 
             (*head).wait();

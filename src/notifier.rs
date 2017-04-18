@@ -46,6 +46,10 @@ impl Notifier {
         Notifier { state: CacheLineAligned::new(AtomicU32::new(SPINNING)) }
     }
 
+    pub fn reset(&self) {
+        self.state.store(SPINNING, Ordering::Release);
+    }
+
     pub fn wait(&self) {
         'wait_loop: loop {
             {
