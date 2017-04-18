@@ -18,9 +18,9 @@ use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use exp;
-use backoff;
-use cacheline::CacheLineAligned;
+use qlock_util::exp;
+use qlock_util::backoff;
+use qlock_util::cacheline::CacheLineAligned;
 
 const NUM_LOOPS: usize = 30;
 const MAX_LOG_NUM_PAUSES: usize = 7;

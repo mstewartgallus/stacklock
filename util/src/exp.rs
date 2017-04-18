@@ -12,32 +12,28 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
-use std::cell::RefCell;
-use std::usize;
 
-use rand::{Rng, XorShiftRng};
-use rand;
-
+/// approximates floor(2^(counter * n / max_counter))
 #[inline]
-pub fn pause() {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    unsafe {
-        asm!("pause" ::: "memory" : "volatile");
+pub fn exp(mut counter: usize, max_counter: usize, n: usize) -> usize {
+    if counter == 0 {
+        counter = 1;
     }
-
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        asm!("yield" ::: "memory" : "volatile");
-    }
+    let counter_n = counter * n;
+    let floor = counter_n / max_counter;
+    let ceil = 1 + (counter_n - 1) / max_counter;
+    let floor_exp = 1 << floor;
+    return floor_exp +
+           (((1 << ceil) - floor_exp) * (counter_n - floor * max_counter)) / max_counter;
 }
 
-// Just use Knuth's MMIX LCG.
+#[cfg(test)]
+mod test {
+    use super::*;
 
-thread_local! {
-    static RNG: RefCell<XorShiftRng> = RefCell::new(rand::weak_rng());
-}
-
-/// A thread random number
-pub fn thread_num(max: usize) -> usize {
-    return RNG.with(|rng| rng.borrow_mut().gen_range(0, max + 1));
+    #[test]
+    fn smoke() {
+        let result = exp(128, 200, 8);
+        assert_eq!(result, 35);
+    }
 }

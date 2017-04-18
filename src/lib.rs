@@ -12,21 +12,19 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
-#![feature(integer_atomics, asm, repr_simd, attr_literals)]
+#![feature(integer_atomics)]
 
 #[macro_use]
 extern crate syscall;
 
 extern crate libc;
-extern crate rand;
 
 #[macro_use]
 extern crate lazy_static;
 
-mod backoff;
-mod cacheline;
+extern crate qlock_util;
+
 mod notifier;
-mod exp;
 
 use std::boxed::Box;
 use std::cell::RefCell;
@@ -37,7 +35,9 @@ use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use cacheline::CacheLineAligned;
+use qlock_util::cacheline::CacheLineAligned;
+use qlock_util::backoff;
+use qlock_util::exp;
 use notifier::Notifier;
 
 const ALLOCATE_NUM_LOOPS: usize = 100;

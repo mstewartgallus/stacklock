@@ -12,27 +12,12 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
+#![feature(asm)]
+#![feature(repr_simd)]
+#![feature(attr_literals)]
 
-/// approximates floor(2^(counter * n / max_counter))
-pub fn exp(mut counter: usize, max_counter: usize, n: usize) -> usize {
-    if counter == 0 {
-        counter = 1;
-    }
-    let counter_n = counter * n;
-    let floor = counter_n / max_counter;
-    let ceil = 1 + (counter_n - 1) / max_counter;
-    let floor_exp = 1 << floor;
-    return floor_exp +
-           (((1 << ceil) - floor_exp) * (counter_n - floor * max_counter)) / max_counter;
-}
+extern crate rand;
 
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn smoke() {
-        let result = exp(128, 200, 8);
-        assert_eq!(result, 35);
-    }
-}
+pub mod backoff;
+pub mod cacheline;
+pub mod exp;
