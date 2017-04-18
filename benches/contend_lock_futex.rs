@@ -7,13 +7,22 @@ mod contend;
 #[macro_use]
 extern crate syscall;
 
+extern crate qlock_util;
+
+use qlock_util::cacheline::CacheLineAligned;
+use qlock_util::backoff;
+use qlock_util::exp;
+
 use std::mem;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use contend::{TestCase, contend};
 
+const NUM_LOOPS: usize = 30;
+const MAX_LOG_NUM_PAUSES: usize = 7;
+
 struct Futex {
-    val: AtomicU32,
+    val: CacheLineAligned<AtomicU32>,
 }
 
 struct FutexGuard<'r> {
@@ -24,7 +33,7 @@ const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
 impl Futex {
     fn new() -> Futex {
-        Futex { val: AtomicU32::new(0) }
+        Futex { val: CacheLineAligned::new(AtomicU32::new(0)) }
     }
 
     fn lock<'r>(&'r self) -> FutexGuard<'r> {
@@ -46,14 +55,22 @@ impl Futex {
                 let val_ptr: usize = mem::transmute(&self.val);
                 syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, 2, 0);
             }
-            for _ in 1..800 {
+            let mut counter = 0;
+            loop {
                 if self.val.load(Ordering::Acquire) != 2 {
                     result = self.val.swap(2, Ordering::AcqRel);
                     if 0 == result {
                         return FutexGuard { lock: self };
                     }
                 }
-                // pause
+                if counter > NUM_LOOPS {
+                    break;
+                }
+
+                for _ in 0..backoff::thread_num(exp::exp(counter, NUM_LOOPS, MAX_LOG_NUM_PAUSES)) {
+                    backoff::pause();
+                }
+                counter += 1;
             }
         }
     }
