@@ -15,6 +15,7 @@
 use std::cell::RefCell;
 use std::usize;
 
+use rand::{Rng, XorShiftRng};
 use rand;
 
 #[inline]
@@ -33,15 +34,10 @@ pub fn pause() {
 // Just use Knuth's MMIX LCG.
 
 thread_local! {
-    static RNG: RefCell<u64> = RefCell::new(rand::random::<u64>());
+    static RNG: RefCell<XorShiftRng> = RefCell::new(rand::weak_rng());
 }
 
 /// A thread random number
 pub fn thread_num(max: usize) -> usize {
-    return RNG.with(|rng| {
-        let value = *rng.borrow();
-        *rng.borrow_mut() =
-            6364136223846793005u64.wrapping_mul(value).wrapping_add(1442695040888963407);
-        value
-    }) as usize % max;
+    return RNG.with(|rng| rng.borrow_mut().gen_range(0, max + 1));
 }
