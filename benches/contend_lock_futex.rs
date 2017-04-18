@@ -50,11 +50,9 @@ impl Futex {
             return FutexGuard { lock: self };
         }
 
+        backoff::pause();
+
         loop {
-            unsafe {
-                let val_ptr: usize = mem::transmute(&self.val);
-                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, 2, 0);
-            }
             let mut counter = 0;
             loop {
                 if self.val.load(Ordering::Acquire) != 2 {
@@ -71,6 +69,11 @@ impl Futex {
                     backoff::pause();
                 }
                 counter += 1;
+            }
+
+            unsafe {
+                let val_ptr: usize = mem::transmute(&self.val);
+                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, 2, 0);
             }
         }
     }
