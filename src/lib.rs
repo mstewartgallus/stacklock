@@ -209,11 +209,11 @@ mod node {
     }
 
     pub struct Stack {
-        head: AtomicU64,
+        head: CacheLineAligned<AtomicU64>,
     }
     impl Stack {
         pub fn new() -> Stack {
-            Stack { head: AtomicU64::new(0) }
+            Stack { head: CacheLineAligned::new(AtomicU64::new(0)) }
         }
 
         pub unsafe fn pop(&self) -> *mut QLockNode {
