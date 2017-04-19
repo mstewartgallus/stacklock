@@ -22,7 +22,7 @@ use qlock_util::exp;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 30;
+const NUM_LOOPS: usize = 40;
 const MAX_LOG_NUM_PAUSES: usize = 7;
 
 const TRIGGERED: u32 = 0;

@@ -148,7 +148,13 @@ mod node {
     }
     impl NodeBox {
         pub fn new() -> Self {
-            NodeBox { node: allocate_node() }
+            unsafe {
+                let mut node = FREE_LIST.pop();
+                if node == ptr::null_mut() {
+                    node = Box::into_raw(Box::new(QLockNode::new()));
+                }
+                NodeBox { node: node }
+            }
         }
         pub fn into_raw(mut self) -> *mut QLockNode {
             let mut x = ptr::null_mut();
@@ -164,11 +170,16 @@ mod node {
         fn drop(&mut self) {
             if self.node != ptr::null_mut() {
                 unsafe {
-                    deallocate_node(self.node);
+                    FREE_LIST.push(self.node);
                 }
             }
         }
     }
+
+    lazy_static! {
+        static ref FREE_LIST: Stack = Stack::new();
+    }
+
     impl Deref for NodeBox {
         type Target = QLockNode;
 
@@ -197,25 +208,25 @@ mod node {
         return ptr_bits | (tag as u64) << 42;
     }
 
-    lazy_static! {
-        static ref FREE_LIST: AtomicU64 = AtomicU64::new(0);
+    pub struct Stack {
+        head: AtomicU64,
     }
+    impl Stack {
+        pub fn new() -> Stack {
+            Stack { head: AtomicU64::new(0) }
+        }
 
-    fn allocate_node() -> *mut QLockNode {
-        unsafe {
-            let free_list = &FREE_LIST;
-
-            let mut list = free_list.load(Ordering::Acquire);
+        pub unsafe fn pop(&self) -> *mut QLockNode {
+            let mut list = self.head.load(Ordering::Acquire);
             let mut counter = 0;
             loop {
                 let (head_ptr, head_tag) = from_tagged(list);
                 if head_ptr == ptr::null_mut() {
-                    let boxed = Box::new(QLockNode::new());
-                    return Box::into_raw(boxed);
+                    return ptr::null_mut();
                 }
 
                 let next = (*head_ptr).next.load(Ordering::Acquire);
-                match free_list.compare_exchange_weak(list,
+                match self.head.compare_exchange_weak(list,
                                                       to_tagged(next, head_tag + 1),
                                                       Ordering::AcqRel,
                                                       Ordering::Acquire) {
@@ -241,38 +252,36 @@ mod node {
             (*head_ptr).next.store(ptr::null_mut(), Ordering::Relaxed);
             return head_ptr;
         }
-    }
 
-    unsafe fn deallocate_node(node: *mut QLockNode) {
-        let free_list = &FREE_LIST;
+        pub unsafe fn push(&self, node: *mut QLockNode) {
+            let mut list = self.head.load(Ordering::Acquire);
+            let mut counter = 0;
+            loop {
+                let (head_ptr, head_tag) = from_tagged(list);
 
-        let mut list = free_list.load(Ordering::Acquire);
-        let mut counter = 0;
-        loop {
-            let (head_ptr, head_tag) = from_tagged(list);
+                (*node).next.store(head_ptr, Ordering::Release);
 
-            (*node).next.store(head_ptr, Ordering::Release);
-
-            match free_list.compare_exchange_weak(list,
-                                                  to_tagged(node, head_tag + 1),
-                                                  Ordering::AcqRel,
-                                                  Ordering::Acquire) {
-                Err(newlist) => {
-                    list = newlist;
+                match self.head.compare_exchange_weak(list,
+                                                      to_tagged(node, head_tag + 1),
+                                                      Ordering::AcqRel,
+                                                      Ordering::Acquire) {
+                    Err(newlist) => {
+                        list = newlist;
+                    }
+                    Ok(_) => {
+                        break;
+                    }
                 }
-                Ok(_) => {
-                    break;
+                if counter < DEALLOCATE_NUM_LOOPS {
+                    for _ in 0..backoff::thread_num(exp::exp(counter,
+                                                             DEALLOCATE_NUM_LOOPS,
+                                                             DEALLOCATE_MAX_LOG_NUM_PAUSES)) {
+                        backoff::pause();
+                    }
+                    counter += 1;
+                } else {
+                    thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
                 }
-            }
-            if counter < DEALLOCATE_NUM_LOOPS {
-                for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                         DEALLOCATE_NUM_LOOPS,
-                                                         DEALLOCATE_MAX_LOG_NUM_PAUSES)) {
-                    backoff::pause();
-                }
-                counter += 1;
-            } else {
-                thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
             }
         }
     }
