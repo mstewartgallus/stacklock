@@ -50,7 +50,7 @@ impl Ticket {
         let mut counter = 0;
         let mut current_ticket;
         loop {
-            current_ticket = self.low.load(Ordering::Acquire);
+            current_ticket = self.low.load(Ordering::Relaxed);
             if current_ticket == my_ticket {
                 return TicketGuard {
                     lock: self,
@@ -65,7 +65,7 @@ impl Ticket {
             } else {
                 let num = my_ticket % 32;
                 let bitset = 1u32 << num;
-                self.spinners.fetch_or(bitset, Ordering::AcqRel);
+                self.spinners.fetch_or(bitset, Ordering::Release);
                 unsafe {
                     let val_ptr: usize = mem::transmute(&self.low);
                     syscall!(FUTEX,
@@ -83,13 +83,13 @@ impl Ticket {
 }
 impl<'r> Drop for TicketGuard<'r> {
     fn drop(&mut self) {
-        self.lock.low.fetch_add(1, Ordering::AcqRel);
+        self.lock.low.fetch_add(1, Ordering::Release);
         let num = (self.ticket + 1) % 32;
 
         let bitset = 1u32 << num;
 
         let old = self.lock.spinners.load(Ordering::Acquire);
-        self.lock.spinners.fetch_and(!bitset, Ordering::AcqRel);
+        self.lock.spinners.fetch_and(!bitset, Ordering::Release);
         if (old & bitset) != 0 {
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.lock.low);

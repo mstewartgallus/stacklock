@@ -15,6 +15,7 @@ use qlock_util::exp;
 
 use std::mem;
 use std::sync::Arc;
+use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use contend::{TestCase, contend};
@@ -39,15 +40,16 @@ impl Futex {
 
     fn lock<'r>(&'r self) -> FutexGuard<'r> {
         let mut result;
-        match self.val.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire) {
+        match self.val.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Relaxed) {
             Err(x) => result = x,
             Ok(_) => return FutexGuard { lock: self },
         }
 
         if result != 2 {
-            result = self.val.swap(2, Ordering::AcqRel);
+            result = self.val.swap(2, Ordering::Release);
         }
         if result == 0 {
+            atomic::fence(Ordering::Acquire);
             return FutexGuard { lock: self };
         }
 
@@ -56,9 +58,10 @@ impl Futex {
         loop {
             let mut counter = 0;
             loop {
-                if self.val.load(Ordering::Acquire) != 2 {
-                    result = self.val.swap(2, Ordering::AcqRel);
+                if self.val.load(Ordering::Relaxed) != 2 {
+                    result = self.val.swap(2, Ordering::Release);
                     if 0 == result {
+                        atomic::fence(Ordering::Acquire);
                         return FutexGuard { lock: self };
                     }
                 }
@@ -81,7 +84,7 @@ impl Futex {
 }
 impl<'r> Drop for FutexGuard<'r> {
     fn drop(&mut self) {
-        if self.lock.val.fetch_sub(1, Ordering::AcqRel) != 1 {
+        if self.lock.val.fetch_sub(1, Ordering::Release) != 1 {
             self.lock.val.store(0, Ordering::Release);
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.lock.val);
