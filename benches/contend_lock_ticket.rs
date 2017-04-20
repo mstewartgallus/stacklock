@@ -88,7 +88,8 @@ impl<'r> Drop for TicketGuard<'r> {
 
         let bitset = 1u32 << num;
 
-        let old = self.lock.spinners.fetch_and(!bitset, Ordering::AcqRel);
+        let old = self.lock.spinners.load(Ordering::Acquire);
+        self.lock.spinners.fetch_and(!bitset, Ordering::AcqRel);
         if (old & bitset) != 0 {
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.lock.low);
