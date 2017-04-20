@@ -108,9 +108,7 @@ impl Notifier {
     pub fn signal(&self) {
         atomic::fence(Ordering::Release);
 
-        if self.state
-            .compare_exchange_weak(SPINNING, TRIGGERED, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok() {
+        if self.state.fetch_sub(1, Ordering::Release) == 1 {
             return;
         }
 
