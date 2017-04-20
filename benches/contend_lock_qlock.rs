@@ -6,17 +6,19 @@ mod contend;
 
 use qlock::QLock;
 
+use std::sync::Arc;
+
 use contend::{TestCase, contend};
 
 enum QLockTestCase {}
 
 impl TestCase for QLockTestCase {
-    type TestType = QLock;
+    type TestType = Arc<QLock>;
 
-    fn create_value() -> QLock {
-        QLock::new()
+    fn create_value() -> Self::TestType {
+        Arc::new(QLock::new())
     }
-    fn do_stuff_with_value(value: &QLock) {
+    fn do_stuff_with_value(value: &Self::TestType) {
         let _ = value.lock();
     }
 }

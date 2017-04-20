@@ -14,6 +14,7 @@ use qlock_util::backoff;
 use qlock_util::exp;
 
 use std::mem;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use contend::{TestCase, contend};
@@ -63,7 +64,8 @@ impl Ticket {
                 counter += 1;
             } else {
                 let num = my_ticket % 32;
-                self.spinners.fetch_or(1 << num, Ordering::AcqRel);
+                let bitset = 1u32 << num;
+                self.spinners.fetch_or(bitset, Ordering::AcqRel);
                 unsafe {
                     let val_ptr: usize = mem::transmute(&self.low);
                     syscall!(FUTEX,
@@ -72,7 +74,7 @@ impl Ticket {
                              current_ticket,
                              0,
                              0,
-                             1u32 << num);
+                             bitset);
                 }
                 counter = 0;
             }
@@ -83,8 +85,11 @@ impl<'r> Drop for TicketGuard<'r> {
     fn drop(&mut self) {
         self.lock.low.fetch_add(1, Ordering::AcqRel);
         let num = (self.ticket + 1) % 32;
-        let old = self.lock.spinners.fetch_and(!(1 << num), Ordering::AcqRel);
-        if (old & (1 << num)) != 0 {
+
+        let bitset = 1u32 << num;
+
+        let old = self.lock.spinners.fetch_and(!bitset, Ordering::AcqRel);
+        if (old & bitset) != 0 {
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.lock.low);
                 syscall!(FUTEX,
@@ -93,7 +98,7 @@ impl<'r> Drop for TicketGuard<'r> {
                          usize::max_value(),
                          0,
                          0,
-                         1u32 << num);
+                         bitset);
             }
         }
     }
@@ -102,12 +107,12 @@ impl<'r> Drop for TicketGuard<'r> {
 enum TicketTestCase {}
 
 impl TestCase for TicketTestCase {
-    type TestType = Ticket;
+    type TestType = Arc<Ticket>;
 
-    fn create_value() -> Ticket {
-        Ticket::new()
+    fn create_value() -> Self::TestType {
+        Arc::new(Ticket::new())
     }
-    fn do_stuff_with_value(value: &Ticket) {
+    fn do_stuff_with_value(value: &Self::TestType) {
         let _ = value.lock();
         // do nothing
     }

@@ -14,6 +14,7 @@ use qlock_util::backoff;
 use qlock_util::exp;
 
 use std::mem;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use contend::{TestCase, contend};
@@ -93,12 +94,12 @@ impl<'r> Drop for FutexGuard<'r> {
 enum FutexTestCase {}
 
 impl TestCase for FutexTestCase {
-    type TestType = Futex;
+    type TestType = Arc<Futex>;
 
-    fn create_value() -> Futex {
-        Futex::new()
+    fn create_value() -> Self::TestType {
+        Arc::new(Futex::new())
     }
-    fn do_stuff_with_value(value: &Futex) {
+    fn do_stuff_with_value(value: &Self::TestType) {
         let _ = value.lock();
         // do nothing
     }
