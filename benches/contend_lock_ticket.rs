@@ -4,29 +4,35 @@ extern crate test;
 
 mod contend;
 
+#[macro_use]
+extern crate syscall;
+
 extern crate qlock_util;
 
 use qlock_util::cacheline::CacheLineAligned;
 use qlock_util::backoff;
 use qlock_util::exp;
 
-use std::thread;
-use std::time::Duration;
+use std::mem;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use contend::{TestCase, contend};
 
-const SLEEP_NS: usize = 400;
-const NUM_LOOPS: usize = 30;
+const NUM_LOOPS: usize = 100;
 const MAX_LOG_NUM_PAUSES: usize = 7;
+
+const FUTEX_WAIT_BITSET_PRIVATE: usize = 9 | 128;
+const FUTEX_WAKE_BITSET_PRIVATE: usize = 10 | 128;
 
 struct Ticket {
     high: CacheLineAligned<AtomicU32>,
     low: CacheLineAligned<AtomicU32>,
+    spinners: CacheLineAligned<AtomicU32>,
 }
 
 struct TicketGuard<'r> {
     lock: &'r Ticket,
+    ticket: u32,
 }
 
 impl Ticket {
@@ -34,6 +40,7 @@ impl Ticket {
         Ticket {
             high: CacheLineAligned::new(AtomicU32::new(0)),
             low: CacheLineAligned::new(AtomicU32::new(0)),
+            spinners: CacheLineAligned::new(AtomicU32::new(0)),
         }
     }
 
@@ -44,7 +51,10 @@ impl Ticket {
         loop {
             current_ticket = self.low.load(Ordering::Acquire);
             if current_ticket == my_ticket {
-                return TicketGuard { lock: self };
+                return TicketGuard {
+                    lock: self,
+                    ticket: my_ticket,
+                };
             }
             if counter < NUM_LOOPS {
                 for _ in 0..backoff::thread_num(exp::exp(counter, NUM_LOOPS, MAX_LOG_NUM_PAUSES)) {
@@ -52,7 +62,19 @@ impl Ticket {
                 }
                 counter += 1;
             } else {
-                thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
+                let num = my_ticket % 32;
+                self.spinners.fetch_or(1 << num, Ordering::AcqRel);
+                unsafe {
+                    let val_ptr: usize = mem::transmute(&self.low);
+                    syscall!(FUTEX,
+                             val_ptr,
+                             FUTEX_WAIT_BITSET_PRIVATE,
+                             current_ticket,
+                             0,
+                             0,
+                             1u32 << num);
+                }
+                counter = 0;
             }
         }
     }
@@ -60,6 +82,20 @@ impl Ticket {
 impl<'r> Drop for TicketGuard<'r> {
     fn drop(&mut self) {
         self.lock.low.fetch_add(1, Ordering::AcqRel);
+        let num = (self.ticket + 1) % 32;
+        let old = self.lock.spinners.fetch_and(!(1 << num), Ordering::AcqRel);
+        if (old & (1 << num)) != 0 {
+            unsafe {
+                let val_ptr: usize = mem::transmute(&self.lock.low);
+                syscall!(FUTEX,
+                         val_ptr,
+                         FUTEX_WAKE_BITSET_PRIVATE,
+                         usize::max_value(),
+                         0,
+                         0,
+                         1u32 << num);
+            }
+        }
     }
 }
 
