@@ -9,7 +9,6 @@ extern crate qlock_util;
 
 use qlock_util::cacheline::CacheLineAligned;
 use qlock_util::backoff;
-use qlock_util::exp;
 
 use std::sync::Arc;
 use std::sync::atomic;
@@ -20,8 +19,7 @@ use std::thread;
 
 use contend::{TestCase, contend};
 
-const NUM_LOOPS: usize = 50;
-const MAX_LOG_NUM_PAUSES: usize = 7;
+const NUM_LOOPS: usize = 9;
 
 struct Hle {
     val: CacheLineAligned<AtomicU32>,
@@ -59,7 +57,7 @@ impl Hle {
                     break;
                 }
 
-                for _ in 0..backoff::thread_num(exp::exp(counter, NUM_LOOPS, MAX_LOG_NUM_PAUSES)) {
+                for _ in 0..backoff::thread_num(1 << counter) {
                     backoff::pause();
                 }
                 counter += 1;
