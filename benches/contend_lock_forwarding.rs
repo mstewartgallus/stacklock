@@ -31,6 +31,7 @@ impl Clone for Lock {
 }
 
 impl Lock {
+    #[inline(never)]
     fn new() -> Lock {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
@@ -46,6 +47,7 @@ impl Lock {
         Lock { sender: sender }
     }
 
+    #[inline(never)]
     fn forward<F: Send + 'static>(&self, f: F)
         where F: FnOnce()
     {

@@ -34,10 +34,12 @@ const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
 impl Futex {
+    #[inline(never)]
     fn new() -> Futex {
         Futex { val: CacheLineAligned::new(AtomicU32::new(0)) }
     }
 
+    #[inline(never)]
     fn lock<'r>(&'r self) -> FutexGuard<'r> {
         let mut result;
         match self.val.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Relaxed) {
@@ -83,6 +85,7 @@ impl Futex {
     }
 }
 impl<'r> Drop for FutexGuard<'r> {
+    #[inline(never)]
     fn drop(&mut self) {
         if self.lock.val.fetch_sub(1, Ordering::Release) != 1 {
             self.lock.val.store(0, Ordering::Release);

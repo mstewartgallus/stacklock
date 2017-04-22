@@ -37,6 +37,7 @@ struct TicketGuard<'r> {
 }
 
 impl Ticket {
+    #[inline(never)]
     fn new() -> Ticket {
         Ticket {
             high: CacheLineAligned::new(AtomicU32::new(0)),
@@ -45,6 +46,7 @@ impl Ticket {
         }
     }
 
+    #[inline(never)]
     fn lock<'r>(&'r self) -> TicketGuard<'r> {
         let my_ticket = self.high.fetch_add(1, Ordering::AcqRel);
         let mut counter = 0;
@@ -82,6 +84,7 @@ impl Ticket {
     }
 }
 impl<'r> Drop for TicketGuard<'r> {
+    #[inline(never)]
     fn drop(&mut self) {
         self.lock.low.fetch_add(1, Ordering::Release);
         let num = (self.ticket + 1) % 32;
