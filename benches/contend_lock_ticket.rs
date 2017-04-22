@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use contend::{TestCase, contend};
 
-const NUM_LOOPS: usize = 100;
+const NUM_LOOPS: usize = 50;
 const MAX_LOG_NUM_PAUSES: usize = 7;
 
 const FUTEX_WAIT_BITSET_PRIVATE: usize = 9 | 128;

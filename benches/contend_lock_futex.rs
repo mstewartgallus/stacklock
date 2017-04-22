@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use contend::{TestCase, contend};
 
-const NUM_LOOPS: usize = 30;
+const NUM_LOOPS: usize = 40;
 const MAX_LOG_NUM_PAUSES: usize = 7;
 
 struct Futex {
