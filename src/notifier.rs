@@ -22,9 +22,9 @@ use std::thread;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const NUM_YIELDS: usize = 5;
+const NUM_YIELDS: usize = 8;
 
-const NUM_LOOPS: usize = 9;
+const NUM_LOOPS: usize = 10;
 const MAX: usize = 4;
 
 const TRIGGERED: u32 = 0;
