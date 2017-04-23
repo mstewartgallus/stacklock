@@ -1,14 +1,13 @@
-#![feature(test)]
 #![feature(asm)]
 #![feature(integer_atomics)]
-extern crate test;
+extern crate criterion;
+extern crate qlock_util;
 
 mod contend;
 
-extern crate qlock_util;
-
 use qlock_util::cacheline::CacheLineAligned;
 
+use criterion::Criterion;
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -79,7 +78,9 @@ impl TestCase for HleTestCase {
     }
 }
 
-#[bench]
-fn contend_lock_hle(b: &mut test::Bencher) {
-    contend::<HleTestCase>(b);
+#[test]
+fn contend_lock_hle() {
+    Criterion::default().bench_function("contend_lock_hle", |b| {
+        contend::<HleTestCase>(b);
+    });
 }

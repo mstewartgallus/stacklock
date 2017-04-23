@@ -1,11 +1,11 @@
-#![feature(test)]
-extern crate test;
+extern crate criterion;
 extern crate qlock;
 
 mod contend;
 
 use qlock::QLock;
 
+use criterion::Criterion;
 use std::sync::Arc;
 
 use contend::{TestCase, contend};
@@ -23,7 +23,9 @@ impl TestCase for QLockTestCase {
     }
 }
 
-#[bench]
-fn contend_lock_qlock(b: &mut test::Bencher) {
-    contend::<QLockTestCase>(b);
+#[test]
+fn contend_lock_qlock() {
+    Criterion::default().bench_function("contend_lock_qlock", |b| {
+        contend::<QLockTestCase>(b);
+    });
 }

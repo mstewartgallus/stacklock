@@ -1,13 +1,15 @@
-#![feature(test)]
 #![feature(integer_atomics)]
-extern crate test;
 
-mod contend;
+extern crate criterion;
 
 #[macro_use]
 extern crate syscall;
 
 extern crate qlock_util;
+
+use criterion::Criterion;
+
+mod contend;
 
 use qlock_util::cacheline::CacheLineAligned;
 use qlock_util::backoff;
@@ -111,7 +113,9 @@ impl TestCase for FutexTestCase {
     }
 }
 
-#[bench]
-fn contend_lock_futex(b: &mut test::Bencher) {
-    contend::<FutexTestCase>(b);
+#[test]
+fn contend_lock_futex() {
+    Criterion::default().bench_function("contend_lock_futex", |b| {
+        contend::<FutexTestCase>(b);
+    });
 }

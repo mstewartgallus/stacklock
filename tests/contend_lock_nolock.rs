@@ -1,9 +1,9 @@
-#![feature(test)]
-extern crate test;
+extern crate criterion;
 
 mod contend;
 
 use contend::{TestCase, contend};
+use criterion::Criterion;
 
 enum EmptyTestCase {}
 impl TestCase for EmptyTestCase {
@@ -18,7 +18,9 @@ impl TestCase for EmptyTestCase {
     }
 }
 
-#[bench]
-fn contend_lock_nolock(b: &mut test::Bencher) {
-    contend::<EmptyTestCase>(b);
+#[test]
+fn contend_lock_nolock() {
+    Criterion::default().bench_function("contend_lock_nolock", |b| {
+        contend::<EmptyTestCase>(b);
+    });
 }

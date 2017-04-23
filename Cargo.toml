@@ -19,6 +19,8 @@ qlock_util = { path = "util" }
 
 [dev-dependencies]
 parking_lot = "0.4"
+criterion = { git = "https://github.com/japaric/criterion.rs" }
+
 
 [profile.release]
 debug = true

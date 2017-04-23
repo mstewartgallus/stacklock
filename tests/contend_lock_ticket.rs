@@ -1,13 +1,13 @@
-#![feature(test)]
 #![feature(integer_atomics)]
-extern crate test;
-
-mod contend;
 
 #[macro_use]
 extern crate syscall;
-
 extern crate qlock_util;
+extern crate criterion;
+
+mod contend;
+
+use criterion::Criterion;
 
 use qlock_util::cacheline::CacheLineAligned;
 use qlock_util::backoff;
@@ -122,7 +122,9 @@ impl TestCase for TicketTestCase {
     }
 }
 
-#[bench]
-fn contend_lock_ticket(b: &mut test::Bencher) {
-    contend::<TicketTestCase>(b);
+#[test]
+fn contend_lock_ticket() {
+    Criterion::default().bench_function("contend_lock_ticket", |b| {
+        contend::<TicketTestCase>(b);
+    });
 }
