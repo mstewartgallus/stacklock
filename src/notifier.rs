@@ -18,12 +18,10 @@ use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use qlock_util::exp;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const NUM_LOOPS: usize = 40;
-const MAX_LOG_NUM_PAUSES: usize = 7;
+const NUM_LOOPS: usize = 8;
 
 const TRIGGERED: u32 = 0;
 const SPINNING: u32 = 1;
@@ -55,20 +53,13 @@ impl Notifier {
             {
                 let mut counter = 0;
                 loop {
-                    if self.state
-                        .compare_exchange_weak(TRIGGERED,
-                                               SPINNING,
-                                               Ordering::Relaxed,
-                                               Ordering::Relaxed)
-                        .is_ok() {
+                    if self.state.load(Ordering::Relaxed) == TRIGGERED {
                         break 'wait_loop;
                     }
                     if counter >= NUM_LOOPS {
                         break;
                     }
-                    for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                             NUM_LOOPS,
-                                                             MAX_LOG_NUM_PAUSES)) {
+                    for _ in 0..backoff::thread_num(1 << counter) {
                         backoff::pause();
                     }
                     counter += 1;
@@ -102,7 +93,6 @@ impl Notifier {
             }
         }
         atomic::fence(Ordering::Acquire);
-        self.state.store(SPINNING, Ordering::Release);
     }
 
     pub fn signal(&self) {
