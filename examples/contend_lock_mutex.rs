@@ -1,11 +1,9 @@
 extern crate criterion;
-extern crate parking_lot;
 
 mod contend;
 
-use parking_lot::Mutex;
-use std::sync::Arc;
 use criterion::Criterion;
+use std::sync::{Arc, Mutex};
 use contend::{TestCase, contend};
 
 enum MutexTestCase {}
@@ -17,14 +15,13 @@ impl TestCase for MutexTestCase {
         Arc::new(Mutex::new(()))
     }
     fn do_stuff_with_value(value: &Self::TestType) {
-        let _ = value.lock();
+        let _ = value.lock().unwrap();
         // do nothing
     }
 }
 
-#[test]
-fn contend_lock_park() {
-    Criterion::default().bench_function("contend_lock_park", |b| {
+fn main() {
+    Criterion::default().bench_function("contend_lock_mutex", |b| {
         contend::<MutexTestCase>(b);
     });
 }

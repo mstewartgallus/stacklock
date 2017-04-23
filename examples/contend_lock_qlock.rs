@@ -23,8 +23,7 @@ impl TestCase for QLockTestCase {
     }
 }
 
-#[test]
-fn contend_lock_qlock() {
+fn main() {
     Criterion::default().bench_function("contend_lock_qlock", |b| {
         contend::<QLockTestCase>(b);
     });

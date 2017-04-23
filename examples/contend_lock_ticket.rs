@@ -122,8 +122,7 @@ impl TestCase for TicketTestCase {
     }
 }
 
-#[test]
-fn contend_lock_ticket() {
+fn main() {
     Criterion::default().bench_function("contend_lock_ticket", |b| {
         contend::<TicketTestCase>(b);
     });

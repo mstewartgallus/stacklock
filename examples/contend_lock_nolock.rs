@@ -18,8 +18,7 @@ impl TestCase for EmptyTestCase {
     }
 }
 
-#[test]
-fn contend_lock_nolock() {
+fn main() {
     Criterion::default().bench_function("contend_lock_nolock", |b| {
         contend::<EmptyTestCase>(b);
     });

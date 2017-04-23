@@ -113,8 +113,7 @@ impl TestCase for FutexTestCase {
     }
 }
 
-#[test]
-fn contend_lock_futex() {
+fn main() {
     Criterion::default().bench_function("contend_lock_futex", |b| {
         contend::<FutexTestCase>(b);
     });
