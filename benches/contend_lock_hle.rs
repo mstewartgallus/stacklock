@@ -8,18 +8,14 @@ mod contend;
 extern crate qlock_util;
 
 use qlock_util::cacheline::CacheLineAligned;
-use qlock_util::backoff;
 
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use std::time::Duration;
 use std::thread;
 
 use contend::{TestCase, contend};
-
-const NUM_LOOPS: usize = 9;
 
 struct Hle {
     val: CacheLineAligned<AtomicU32>,
@@ -38,32 +34,21 @@ impl Hle {
     #[inline(never)]
     fn lock<'r>(&'r self) -> HleGuard<'r> {
         loop {
-            let mut counter = 0;
-            loop {
-                let mut prev: u32 = 1;
-                unsafe {
-                    asm!("xacquire; lock; xchg $0, $1"
-                         : "+r" (prev), "+*m" (&*self.val)
-                         :
-                         : "memory"
-                         : "volatile", "intel");
-                }
-                if 0 == prev {
-                    atomic::fence(Ordering::Acquire);
-                    return HleGuard { lock: self };
-                }
-
-                if counter > NUM_LOOPS {
-                    break;
-                }
-
-                for _ in 0..backoff::thread_num(1 << counter) {
-                    backoff::pause();
-                }
-                counter += 1;
+            let mut prev: u32 = 1;
+            unsafe {
+                // xchg implicitly has a lock prefix
+                asm!("xacquire; xchg $0, $1"
+                     : "+r" (prev), "+*m" (&*self.val)
+                     :
+                     : "memory"
+                     : "volatile", "intel");
+            }
+            if 0 == prev {
+                atomic::fence(Ordering::Acquire);
+                return HleGuard { lock: self };
             }
 
-            thread::sleep(Duration::new(0, backoff::thread_num(400) as u32));
+            thread::yield_now();
         }
     }
 }
