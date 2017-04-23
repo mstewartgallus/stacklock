@@ -14,8 +14,14 @@
 //
 use std::ops::{Deref, DerefMut};
 
-#[repr(align(64))]
+#[repr(simd)]
+struct Aligner(f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32);
+
+/// Unfortunately repr(align) has not stabilized yet so this is the
+/// best we can do.  See
+/// https://github.com/rust-lang/rust/issues/33626
 pub struct CacheLineAligned<T> {
+    _aligner: [Aligner; 0],
     value: T,
 }
 
@@ -23,7 +29,8 @@ impl<T> CacheLineAligned<T> {
     #[inline]
     pub fn new(x: T) -> Self {
         CacheLineAligned {
-            value: x
+            value: x,
+            _aligner: [],
         }
     }
 }
