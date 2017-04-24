@@ -24,3 +24,6 @@ criterion = { git = "https://github.com/japaric/criterion.rs" }
 
 [profile.release]
 debug = true
+
+[profile.dev]
+opt-level = 3
