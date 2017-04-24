@@ -17,7 +17,6 @@ use libc;
 use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::thread;
 
 use qlock_util::backoff;
 use qlock_util::exp;
