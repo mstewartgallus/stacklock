@@ -14,9 +14,12 @@ impl TestCase for MutexTestCase {
     fn create_value() -> Self::TestType {
         Arc::new(Mutex::new(()))
     }
-    fn do_stuff_with_value(value: &Self::TestType) {
-        let _ = value.lock().unwrap();
-        // do nothing
+    fn do_stuff_with_value(value: &Self::TestType, times: usize) {
+        let borrowed = &*value;
+        for _ in 0..times {
+            let _ = borrowed.lock().unwrap();
+            // do nothing
+        }
     }
 }
 

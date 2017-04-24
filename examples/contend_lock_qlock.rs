@@ -18,8 +18,11 @@ impl TestCase for QLockTestCase {
     fn create_value() -> Self::TestType {
         Arc::new(QLock::new())
     }
-    fn do_stuff_with_value(value: &Self::TestType) {
-        let _ = value.lock();
+    fn do_stuff_with_value(value: &Self::TestType, times: usize) {
+        let borrowed = &*value;
+        for _ in 0..times {
+            let _ = borrowed.lock();
+        }
     }
 }
 

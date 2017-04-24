@@ -8,7 +8,7 @@ pub trait TestCase {
     type TestType: Clone + Send;
 
     fn create_value() -> Self::TestType;
-    fn do_stuff_with_value(value: &Self::TestType);
+    fn do_stuff_with_value(value: &Self::TestType, times: usize);
 }
 
 pub fn contend<T: TestCase + 'static>(b: &mut Bencher) {
@@ -35,9 +35,7 @@ pub fn contend<T: TestCase + 'static>(b: &mut Bencher) {
                     break;
                 }
 
-                for _ in 0..100 {
-                    T::do_stuff_with_value(&lock_ref);
-                }
+                T::do_stuff_with_value(&lock_ref, 100);
 
                 done_ref.wait();
             }

@@ -13,7 +13,7 @@ impl TestCase for EmptyTestCase {
         return ();
     }
 
-    fn do_stuff_with_value(_: &()) {
+    fn do_stuff_with_value(_: &Self::TestType, _: usize) {
         // do nothing
     }
 }
