@@ -25,7 +25,7 @@ use qlock_util::cacheline::CacheLineAligned;
 const NUM_YIELDS: usize = 8;
 
 const NUM_LOOPS: usize = 10;
-const MAX: usize = 4;
+const MAX: usize = 3;
 
 const TRIGGERED: u32 = 0;
 const SPINNING: u32 = 1;
