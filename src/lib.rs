@@ -27,7 +27,6 @@ extern crate qlock_util;
 mod notifier;
 
 use std::cell::RefCell;
-use std::marker::PhantomData;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
@@ -43,7 +42,7 @@ unsafe impl Send for QLock {}
 unsafe impl Sync for QLock {}
 
 pub struct QLockGuard<'r> {
-    lock: PhantomData<&'r QLock>,
+    lock: &'r QLock,
     node: *mut QLockNode,
 }
 
@@ -56,20 +55,24 @@ impl QLock {
 
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
         LOCAL_NODE_STASH.with(|node_store| unsafe {
-            let node = NodeBox::into_raw(ptr::read(&*node_store.borrow_mut()));
+            let mut node = NodeBox::into_raw(ptr::read(&*node_store.borrow_mut()));
+            if ptr::null_mut() == node {
+                node = NodeBox::into_raw(NodeBox::new());
+            }
 
             // This can't be avoided unless SeqCst orderings are used.
             // The issue is that we reset the notifier in a different
             // thread than this one.
             (*node).reset();
             let head = self.head.swap(node, Ordering::AcqRel);
-
-            (*head).wait();
+            if head != ptr::null_mut() {
+                (*head).wait();
+            }
 
             ptr::write(&mut *node_store.borrow_mut(), NodeBox::from_raw(head));
 
             QLockGuard {
-                lock: PhantomData,
+                lock: self,
                 node: node,
             }
         })
@@ -87,6 +90,19 @@ impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         unsafe {
             (*self.node).signal();
+
+            let actual_head = self.lock.head.load(Ordering::Acquire);
+            if actual_head == self.node {
+                if self.lock
+                    .head
+                    .compare_exchange(self.node,
+                                      ptr::null_mut(),
+                                      Ordering::AcqRel,
+                                      Ordering::Relaxed)
+                    .is_ok() {
+                    NodeBox::from_raw(self.node);
+                }
+            }
         }
     }
 }
@@ -237,16 +253,7 @@ mod node {
                         break;
                     }
                 }
-                if counter < ALLOCATE_NUM_LOOPS {
-                    for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                             ALLOCATE_NUM_LOOPS,
-                                                             ALLOCATE_MAX_LOG_NUM_PAUSES)) {
-                        backoff::pause();
-                    }
-                    counter += 1;
-                } else {
-                    thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
-                }
+                thread::yield_now();
             }
             let (head_ptr, _) = from_tagged(list);
             (*head_ptr).next.store(ptr::null_mut(), Ordering::Relaxed);
@@ -272,16 +279,7 @@ mod node {
                         break;
                     }
                 }
-                if counter < DEALLOCATE_NUM_LOOPS {
-                    for _ in 0..backoff::thread_num(exp::exp(counter,
-                                                             DEALLOCATE_NUM_LOOPS,
-                                                             DEALLOCATE_MAX_LOG_NUM_PAUSES)) {
-                        backoff::pause();
-                    }
-                    counter += 1;
-                } else {
-                    thread::sleep(Duration::new(0, backoff::thread_num(SLEEP_NS) as u32));
-                }
+                thread::yield_now();
             }
         }
     }
