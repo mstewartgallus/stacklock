@@ -13,17 +13,16 @@ mod contend;
 
 use qlock_util::cacheline::CacheLineAligned;
 use qlock_util::backoff;
-use qlock_util::exp;
 
 use std::mem;
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
 
 use contend::{TestCase, contend};
 
 const NUM_LOOPS: usize = 40;
-const MAX_LOG_NUM_PAUSES: usize = 7;
 
 struct Futex {
     val: CacheLineAligned<AtomicU32>,
@@ -73,9 +72,7 @@ impl Futex {
                     break;
                 }
 
-                for _ in 0..backoff::thread_num(exp::exp(counter, NUM_LOOPS, MAX_LOG_NUM_PAUSES)) {
-                    backoff::pause();
-                }
+                thread::yield_now();
                 counter += 1;
             }
 
