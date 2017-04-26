@@ -29,10 +29,13 @@ mod notifier;
 use std::cell::RefCell;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::thread;
 
 use qlock_util::cacheline::CacheLineAligned;
 
 use node::{QLockNode, NodeBox};
+
+const HEAD_SPINS: usize = 30;
 
 /// A CLH queue-lock
 pub struct QLock {
@@ -64,9 +67,36 @@ impl QLock {
             // The issue is that we reset the notifier in a different
             // thread than this one.
             (*node).reset();
-            let head = self.head.swap(node, Ordering::AcqRel);
-            if head != ptr::null_mut() {
-                (*head).wait();
+            let mut counter = 0;
+            let set_head;
+            loop {
+                if ptr::null_mut() == self.head.load(Ordering::Relaxed) {
+                    if self.head
+                        .compare_exchange(ptr::null_mut(),
+                                          node,
+                                          Ordering::AcqRel,
+                                          Ordering::Relaxed)
+                        .is_ok() {
+                        set_head = true;
+                        break;
+                    }
+                }
+                if counter >= HEAD_SPINS {
+                    set_head = false;
+                    break;
+                }
+                thread::yield_now();
+                counter += 1;
+            }
+
+            let head;
+            if set_head {
+                head = ptr::null_mut();
+            } else {
+                head = self.head.swap(node, Ordering::AcqRel);
+                if head != ptr::null_mut() {
+                    (*head).wait();
+                }
             }
 
             ptr::write(&mut *node_store.borrow_mut(), NodeBox::from_raw(head));
@@ -117,21 +147,10 @@ mod node {
     use std::ptr;
     use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
     use std::thread;
-    use std::time::Duration;
     use std::ops::{Deref, DerefMut};
 
     use qlock_util::cacheline::CacheLineAligned;
-    use qlock_util::backoff;
-    use qlock_util::exp;
     use notifier::Notifier;
-
-    const ALLOCATE_NUM_LOOPS: usize = 100;
-    const ALLOCATE_MAX_LOG_NUM_PAUSES: usize = 7;
-
-    const DEALLOCATE_NUM_LOOPS: usize = 100;
-    const DEALLOCATE_MAX_LOG_NUM_PAUSES: usize = 7;
-
-    const SLEEP_NS: usize = 400;
 
     pub struct QLockNode {
         notifier: Notifier,
@@ -234,7 +253,6 @@ mod node {
 
         pub unsafe fn pop(&self) -> *mut QLockNode {
             let mut list = self.head.load(Ordering::Acquire);
-            let mut counter = 0;
             loop {
                 let (head_ptr, head_tag) = from_tagged(list);
                 if head_ptr == ptr::null_mut() {
@@ -262,7 +280,6 @@ mod node {
 
         pub unsafe fn push(&self, node: *mut QLockNode) {
             let mut list = self.head.load(Ordering::Acquire);
-            let mut counter = 0;
             loop {
                 let (head_ptr, head_tag) = from_tagged(list);
 
