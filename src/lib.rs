@@ -36,7 +36,7 @@ use qlock_util::cacheline::CacheLineAligned;
 
 use node::{QLockNode, NodeBox};
 
-const HEAD_SPINS: usize = 30;
+const HEAD_SPINS: usize = 60;
 
 /// A CLH queue-lock
 pub struct QLock {
