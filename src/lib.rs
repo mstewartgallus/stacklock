@@ -28,7 +28,6 @@ mod notifier;
 
 use std::cell::RefCell;
 use std::ptr;
-use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::thread;
 
@@ -52,9 +51,7 @@ pub struct QLockGuard<'r> {
 
 impl QLock {
     pub fn new() -> Self {
-        let node = NodeBox::new();
-        (*node).signal();
-        QLock { head: CacheLineAligned::new(AtomicPtr::new(NodeBox::into_raw(node))) }
+        QLock { head: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())) }
     }
 
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
