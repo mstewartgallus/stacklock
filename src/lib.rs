@@ -274,21 +274,34 @@ mod node {
             loop {
                 atomic::fence(Ordering::Acquire);
                 let next = (*head_ptr).next.load(Ordering::Acquire);
-                match self.head.compare_exchange_weak(list,
-                                                      to_tagged(next, head_tag + 1),
-                                                      Ordering::Release,
-                                                      Ordering::Relaxed) {
-                    Err(newlist) => {
-                        list = newlist;
-                        let (a, b) = from_tagged(list);
-                        head_ptr = a;
-                        head_tag = b;
-                        if head_ptr == ptr::null_mut() {
-                            return ptr::null_mut();
+
+                let to_replace = to_tagged(next, head_tag + 1);
+                let maybe_list = self.head.load(Ordering::Relaxed);
+                if maybe_list == list {
+                    match self.head.compare_exchange_weak(list,
+                                                          to_replace,
+                                                          Ordering::Release,
+                                                          Ordering::Relaxed) {
+                        Err(newlist) => {
+                            list = newlist;
+                            let (a, b) = from_tagged(list);
+                            head_ptr = a;
+                            head_tag = b;
+                            if head_ptr == ptr::null_mut() {
+                                return ptr::null_mut();
+                            }
+                        }
+                        Ok(_) => {
+                            break;
                         }
                     }
-                    Ok(_) => {
-                        break;
+                } else {
+                    list = maybe_list;
+                    let (a, b) = from_tagged(list);
+                    head_ptr = a;
+                    head_tag = b;
+                    if head_ptr == ptr::null_mut() {
+                        return ptr::null_mut();
                     }
                 }
                 backoff::pause();
