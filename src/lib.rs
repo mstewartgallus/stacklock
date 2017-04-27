@@ -152,12 +152,15 @@ thread_local! {
 mod node {
     use std::boxed::Box;
     use std::mem;
+    use std::ops::{Deref, DerefMut};
     use std::ptr;
+    use std::sync::atomic;
     use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
     use std::thread;
-    use std::ops::{Deref, DerefMut};
 
+    use qlock_util::backoff;
     use qlock_util::cacheline::CacheLineAligned;
+
     use notifier::Notifier;
 
     pub struct QLockNode {
@@ -260,50 +263,62 @@ mod node {
         }
 
         pub unsafe fn pop(&self) -> *mut QLockNode {
-            let mut list = self.head.load(Ordering::Acquire);
-            loop {
-                let (head_ptr, head_tag) = from_tagged(list);
-                if head_ptr == ptr::null_mut() {
-                    return ptr::null_mut();
-                }
+            atomic::fence(Ordering::Release);
 
+            let mut list = self.head.load(Ordering::Acquire);
+            let (mut head_ptr, mut head_tag) = from_tagged(list);
+            if head_ptr == ptr::null_mut() {
+                return ptr::null_mut();
+            }
+
+            loop {
+                atomic::fence(Ordering::Acquire);
                 let next = (*head_ptr).next.load(Ordering::Acquire);
                 match self.head.compare_exchange_weak(list,
                                                       to_tagged(next, head_tag + 1),
-                                                      Ordering::AcqRel,
-                                                      Ordering::Acquire) {
+                                                      Ordering::Release,
+                                                      Ordering::Relaxed) {
                     Err(newlist) => {
                         list = newlist;
+                        let (a, b) = from_tagged(list);
+                        head_ptr = a;
+                        head_tag = b;
+                        if head_ptr == ptr::null_mut() {
+                            return ptr::null_mut();
+                        }
                     }
                     Ok(_) => {
                         break;
                     }
                 }
+                backoff::pause();
                 thread::yield_now();
             }
-            let (head_ptr, _) = from_tagged(list);
             (*head_ptr).next.store(ptr::null_mut(), Ordering::Relaxed);
             return head_ptr;
         }
 
         pub unsafe fn push(&self, node: *mut QLockNode) {
-            let mut list = self.head.load(Ordering::Acquire);
+            let mut list = self.head.load(Ordering::Relaxed);
+            let (mut head_ptr, mut head_tag) = from_tagged(list);
             loop {
-                let (head_ptr, head_tag) = from_tagged(list);
-
-                (*node).next.store(head_ptr, Ordering::Release);
+                (*node).next.store(head_ptr, Ordering::Relaxed);
 
                 match self.head.compare_exchange_weak(list,
                                                       to_tagged(node, head_tag + 1),
-                                                      Ordering::AcqRel,
-                                                      Ordering::Acquire) {
+                                                      Ordering::Release,
+                                                      Ordering::Relaxed) {
                     Err(newlist) => {
                         list = newlist;
+                        let (a, b) = from_tagged(list);
+                        head_ptr = a;
+                        head_tag = b;
                     }
                     Ok(_) => {
                         break;
                     }
                 }
+                backoff::pause();
                 thread::yield_now();
             }
         }
