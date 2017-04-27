@@ -28,6 +28,7 @@ mod notifier;
 
 use std::cell::RefCell;
 use std::ptr;
+use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::thread;
 
@@ -119,9 +120,8 @@ impl<'r> Drop for QLock {
 impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         unsafe {
-            (*self.node).signal();
-
-            let actual_head = self.lock.head.load(Ordering::Acquire);
+            let used_node;
+            let actual_head = self.lock.head.load(Ordering::Relaxed);
             if actual_head == self.node {
                 if self.lock
                     .head
@@ -131,7 +131,16 @@ impl<'r> Drop for QLockGuard<'r> {
                                       Ordering::Relaxed)
                     .is_ok() {
                     NodeBox::from_raw(self.node);
+                    used_node = true;
+                } else {
+                    used_node = false;
                 }
+            } else {
+                used_node = false;
+            }
+
+            if !used_node {
+                (*self.node).signal();
             }
         }
     }
