@@ -5,6 +5,7 @@ extern crate qlock_util;
 
 mod contend;
 
+use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
 use criterion::Criterion;
@@ -47,6 +48,7 @@ impl Hle {
                 return HleGuard { lock: self };
             }
 
+            backoff::pause();
             thread::yield_now();
         }
     }
