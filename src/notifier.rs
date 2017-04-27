@@ -19,6 +19,7 @@ use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
+use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
 const LOOPS: usize = 30;
@@ -59,6 +60,7 @@ impl Notifier {
                     if 0 == counter {
                         break;
                     }
+                    backoff::pause();
                     thread::yield_now();
                     counter -= 1;
                 }

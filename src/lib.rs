@@ -31,6 +31,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::thread;
 
+use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
 use node::{QLockNode, NodeBox};
@@ -83,6 +84,7 @@ impl QLock {
                     set_head = false;
                     break;
                 }
+                backoff::pause();
                 thread::yield_now();
                 counter -= 1;
             }
