@@ -65,7 +65,7 @@ impl Notifier {
             }
 
             if self.state
-                .compare_exchange(SPINNING, WAITING, Ordering::Relaxed, Ordering::Relaxed)
+                .compare_exchange(SPINNING, WAITING, Ordering::Release, Ordering::Relaxed)
                 .is_err() {
                 break;
             }
@@ -85,7 +85,7 @@ impl Notifier {
             }
 
             if self.state
-                .compare_exchange(WAITING, SPINNING, Ordering::Relaxed, Ordering::Relaxed)
+                .compare_exchange(WAITING, SPINNING, Ordering::Release, Ordering::Relaxed)
                 .is_err() {
                 break;
             }
@@ -96,11 +96,11 @@ impl Notifier {
     pub fn signal(&self) {
         atomic::fence(Ordering::Release);
 
-        if self.state.fetch_sub(1, Ordering::Release) == 1 {
+        if self.state.fetch_sub(1, Ordering::Relaxed) == 1 {
             return;
         }
 
-        self.state.store(TRIGGERED, Ordering::Relaxed);
+        self.state.store(TRIGGERED, Ordering::Release);
         unsafe {
             let trig: usize = mem::transmute(&self.state);
             syscall!(FUTEX, trig, FUTEX_WAKE_PRIVATE, 1);
