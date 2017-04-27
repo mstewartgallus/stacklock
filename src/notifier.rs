@@ -17,8 +17,8 @@ use libc;
 use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
 
-use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
 const LOOPS: usize = 30;
@@ -51,16 +51,16 @@ impl Notifier {
     pub fn wait(&self) {
         'wait_loop: loop {
             {
-                let mut counter = 0;
+                let mut counter = LOOPS;
                 loop {
                     if self.state.load(Ordering::Relaxed) == TRIGGERED {
                         break 'wait_loop;
                     }
-                    if counter >= LOOPS {
+                    if 0 == counter {
                         break;
                     }
-                    backoff::pause();
-                    counter += 1;
+                    thread::yield_now();
+                    counter -= 1;
                 }
             }
 

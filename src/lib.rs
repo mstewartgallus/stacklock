@@ -65,7 +65,7 @@ impl QLock {
             // The issue is that we reset the notifier in a different
             // thread than this one.
             (*node).reset();
-            let mut counter = 0;
+            let mut counter = HEAD_SPINS;
             let set_head;
             loop {
                 if ptr::null_mut() == self.head.load(Ordering::Relaxed) {
@@ -79,12 +79,12 @@ impl QLock {
                         break;
                     }
                 }
-                if counter >= HEAD_SPINS {
+                if 0 == counter {
                     set_head = false;
                     break;
                 }
                 thread::yield_now();
-                counter += 1;
+                counter -= 1;
             }
 
             let head;
