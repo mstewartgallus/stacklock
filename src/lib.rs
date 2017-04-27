@@ -72,9 +72,9 @@ impl QLock {
                 if ptr::null_mut() == self.head.load(Ordering::Relaxed) {
                     if self.head
                         .compare_exchange_weak(ptr::null_mut(),
-                                          node,
-                                          Ordering::AcqRel,
-                                          Ordering::Relaxed)
+                                               node,
+                                               Ordering::AcqRel,
+                                               Ordering::Relaxed)
                         .is_ok() {
                         set_head = true;
                         break;
