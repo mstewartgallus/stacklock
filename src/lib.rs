@@ -243,15 +243,17 @@ mod node {
     }
 
     unsafe fn from_tagged(tagged: u64) -> (*mut QLockNode, u32) {
-        let ptr = mem::transmute((tagged & ((1 << 42) - 1)) << 6);
-        let tag = (tagged >> 42) as u32;
-        return (ptr, tag);
+        let ptr_bits = (tagged >> 22) << 6;
+        let ptr = mem::transmute(ptr_bits);
+        let tag = tagged & ((1 << 22) - 1);
+        return (ptr, tag as u32);
     }
 
-    unsafe fn to_tagged(ptr: *mut QLockNode, tag: u32) -> u64 {
+    unsafe fn to_tagged(ptr: *mut QLockNode, mut tag: u32) -> u64 {
+        tag = tag & ((1 << 22) - 1);
         let mut ptr_bits: u64 = mem::transmute(ptr);
         ptr_bits = ptr_bits >> 6;
-        return ptr_bits | (tag as u64) << 42;
+        return ptr_bits << 22 | tag as u64;
     }
 
     pub struct Stack {
@@ -333,6 +335,33 @@ mod node {
                 }
                 backoff::pause();
                 thread::yield_now();
+            }
+        }
+    }
+
+
+    #[cfg(test)]
+    mod test {
+        use super::{NodeBox, to_tagged, from_tagged};
+
+        #[test]
+        fn test() {
+            unsafe {
+                let a = NodeBox::into_raw(NodeBox::new());
+                let b = 40902;
+
+                let (maybe_a, maybe_b) = from_tagged(to_tagged(a, b));
+
+                assert_eq!(a, maybe_a);
+                assert_eq!(b, maybe_b);
+
+                NodeBox::from_raw(a);
+            }
+            unsafe {
+                let input = u64::max_value();
+                let (a, b) = from_tagged(input);
+                let output = to_tagged(a, b);
+                assert_eq!(input, output);
             }
         }
     }
