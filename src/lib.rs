@@ -26,7 +26,6 @@ extern crate qlock_util;
 
 mod notifier;
 
-use std::cell::RefCell;
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::thread;
@@ -56,11 +55,8 @@ impl QLock {
     }
 
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
-        LOCAL_NODE_STASH.with(|node_store| unsafe {
-            let mut node = NodeBox::into_raw(ptr::read(&*node_store.borrow_mut()));
-            if ptr::null_mut() == node {
-                node = NodeBox::into_raw(NodeBox::new());
-            }
+        unsafe {
+            let node = NodeBox::into_raw(NodeBox::new());
 
             // This can't be avoided unless SeqCst orderings are used.
             // The issue is that we reset the notifier in a different
@@ -99,13 +95,13 @@ impl QLock {
                 }
             }
 
-            ptr::write(&mut *node_store.borrow_mut(), NodeBox::from_raw(head));
+            NodeBox::from_raw(head);
 
             QLockGuard {
                 lock: self,
                 node: node,
             }
-        })
+        }
     }
 }
 impl<'r> Drop for QLock {
@@ -145,10 +141,6 @@ impl<'r> Drop for QLockGuard<'r> {
     }
 }
 
-thread_local! {
-    static LOCAL_NODE_STASH: RefCell<NodeBox> = RefCell::new(NodeBox::new());
-}
-
 mod node {
     use std::boxed::Box;
     use std::mem;
@@ -157,6 +149,8 @@ mod node {
     use std::sync::atomic;
     use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
     use std::thread;
+
+    use libc;
 
     use qlock_util::backoff;
     use qlock_util::cacheline::CacheLineAligned;
@@ -195,7 +189,8 @@ mod node {
     impl NodeBox {
         pub fn new() -> Self {
             unsafe {
-                let mut node = FREE_LIST.pop();
+                let list = libc::sched_getcpu() as usize % 2;
+                let mut node = FREE_LIST[list].pop();
                 if node == ptr::null_mut() {
                     node = Box::into_raw(Box::new(QLockNode::new()));
                 }
@@ -216,14 +211,15 @@ mod node {
         fn drop(&mut self) {
             if self.node != ptr::null_mut() {
                 unsafe {
-                    FREE_LIST.push(self.node);
+                    let list = libc::sched_getcpu() as usize % 2;
+                    FREE_LIST[list].push(self.node);
                 }
             }
         }
     }
 
     lazy_static! {
-        static ref FREE_LIST: Stack = Stack::new();
+        static ref FREE_LIST: [Stack; 2] = [Stack::new(), Stack::new()];
     }
 
     impl Deref for NodeBox {
