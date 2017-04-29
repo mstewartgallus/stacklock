@@ -101,13 +101,7 @@ impl<'r> Drop for QLockGuard<'r> {
         unsafe {
             atomic::fence(Ordering::Release);
 
-            let mut next = self.node.next.load(Ordering::Relaxed);
             loop {
-                if next != ptr::null_mut() {
-                    atomic::fence(Ordering::Acquire);
-                    (*next).signal();
-                    break;
-                }
                 if self.lock
                     .head
                     .compare_exchange_weak(self.node,
@@ -117,9 +111,14 @@ impl<'r> Drop for QLockGuard<'r> {
                     .is_ok() {
                     break;
                 }
+                let next = self.node.next.load(Ordering::Relaxed);
+                if next != ptr::null_mut() {
+                    atomic::fence(Ordering::Acquire);
+                    (*next).signal();
+                    break;
+                }
                 backoff::pause();
                 thread::yield_now();
-                next = self.node.next.load(Ordering::Relaxed);
             }
         }
     }
