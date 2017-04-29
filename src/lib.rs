@@ -35,7 +35,8 @@ use qlock_util::cacheline::CacheLineAligned;
 
 use node::{QLockNode, NodeBox};
 
-const HEAD_SPINS: usize = 60;
+const PAUSE_SPINS: usize = 20;
+const HEAD_SPINS: usize = 30;
 
 /// A CLH queue-lock
 pub struct QLock {
@@ -62,27 +63,50 @@ impl QLock {
             // The issue is that we reset the notifier in a different
             // thread than this one.
             (*node).reset();
-            let mut counter = HEAD_SPINS;
-            let set_head;
-            loop {
-                if ptr::null_mut() == self.head.load(Ordering::Relaxed) {
-                    if self.head
-                        .compare_exchange_weak(ptr::null_mut(),
-                                               node,
-                                               Ordering::AcqRel,
-                                               Ordering::Relaxed)
-                        .is_ok() {
-                        set_head = true;
+            let mut set_head = false;
+            {
+                let mut counter = PAUSE_SPINS;
+                loop {
+                    if ptr::null_mut() == self.head.load(Ordering::Relaxed) {
+                        if self.head
+                            .compare_exchange_weak(ptr::null_mut(),
+                                                   node,
+                                                   Ordering::AcqRel,
+                                                   Ordering::Relaxed)
+                            .is_ok() {
+                            set_head = true;
+                            break;
+                        }
+                    }
+                    if 0 == counter {
                         break;
                     }
+                    backoff::pause();
+                    counter -= 1;
                 }
-                if 0 == counter {
-                    set_head = false;
-                    break;
+            }
+
+            if !set_head {
+                let mut counter = HEAD_SPINS;
+                loop {
+                    if ptr::null_mut() == self.head.load(Ordering::Relaxed) {
+                        if self.head
+                            .compare_exchange_weak(ptr::null_mut(),
+                                                   node,
+                                                   Ordering::AcqRel,
+                                                   Ordering::Relaxed)
+                            .is_ok() {
+                            set_head = true;
+                            break;
+                        }
+                    }
+                    if 0 == counter {
+                        break;
+                    }
+                    backoff::pause();
+                    thread::yield_now();
+                    counter -= 1;
                 }
-                backoff::pause();
-                thread::yield_now();
-                counter -= 1;
             }
 
             let head;
