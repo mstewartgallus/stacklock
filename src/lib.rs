@@ -101,18 +101,19 @@ impl<'r> Drop for QLockGuard<'r> {
         unsafe {
             atomic::fence(Ordering::Release);
 
-            loop {
-                if self.lock.head.load(Ordering::Relaxed) == self.node {
-                    if self.lock
-                        .head
-                        .compare_exchange_weak(self.node,
-                                               ptr::null_mut(),
-                                               Ordering::AcqRel,
-                                               Ordering::Relaxed)
-                        .is_ok() {
-                        break;
-                    }
+            if self.lock.head.load(Ordering::Acquire) == self.node {
+                if self.lock
+                    .head
+                    .compare_exchange_weak(self.node,
+                                           ptr::null_mut(),
+                                           Ordering::AcqRel,
+                                           Ordering::Relaxed)
+                    .is_ok() {
+                    return;
                 }
+            }
+
+            loop {
                 let next = self.node.next.load(Ordering::Relaxed);
                 if next != ptr::null_mut() {
                     atomic::fence(Ordering::Acquire);
