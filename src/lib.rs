@@ -140,16 +140,16 @@ impl QLockNode {
         }
     }
 
-    pub fn reset(&self) {
+    fn reset(&self) {
         self.next.store(ptr::null_mut(), Ordering::Relaxed);
         self.notifier.reset();
     }
 
-    pub fn signal(&self) {
+    fn signal(&self) {
         self.notifier.signal();
     }
 
-    pub fn wait(&self) {
+    fn wait(&self) {
         self.notifier.wait();
     }
 }
