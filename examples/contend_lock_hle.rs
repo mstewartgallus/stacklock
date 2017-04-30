@@ -84,7 +84,7 @@ impl TestCase for HleTestCase {
 }
 
 fn main() {
-    Criterion::default().bench_function("contend_lock_hle", |b| {
-        contend::<HleTestCase>(b);
-    });
+    Criterion::default().bench_function_over_inputs("contend_lock_hle",
+                                                    |b, &&n| contend::<HleTestCase>(b, n),
+                                                    contend::STANDARD_TESTS.iter());
 }

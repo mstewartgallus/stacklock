@@ -24,7 +24,7 @@ impl TestCase for MutexTestCase {
 }
 
 fn main() {
-    Criterion::default().bench_function("contend_lock_mutex", |b| {
-        contend::<MutexTestCase>(b);
-    });
+    Criterion::default().bench_function_over_inputs("contend_lock_mutex",
+                                                    |b, &&n| contend::<MutexTestCase>(b, n),
+                                                    contend::STANDARD_TESTS.iter());
 }

@@ -28,7 +28,7 @@ impl TestCase for QLockTestCase {
 }
 
 fn main() {
-    Criterion::default().bench_function("contend_lock_qlock", |b| {
-        contend::<QLockTestCase>(b);
-    });
+    Criterion::default().bench_function_over_inputs("contend_lock_qlock",
+                                                    |b, &&n| contend::<QLockTestCase>(b, n),
+                                                    contend::STANDARD_TESTS.iter());
 }

@@ -19,7 +19,7 @@ impl TestCase for EmptyTestCase {
 }
 
 fn main() {
-    Criterion::default().bench_function("contend_lock_nolock", |b| {
-        contend::<EmptyTestCase>(b);
-    });
+    Criterion::default().bench_function_over_inputs("contend_lock_nolock",
+                                                    |b, &&n| contend::<EmptyTestCase>(b, n),
+                                                    contend::STANDARD_TESTS.iter());
 }

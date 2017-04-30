@@ -11,18 +11,18 @@ pub trait TestCase {
     fn do_stuff_with_value(value: &Self::TestType, times: usize);
 }
 
-pub fn contend<T: TestCase + 'static>(b: &mut Bencher) {
+pub const STANDARD_TESTS: [usize; 3] = [2, 4, 20];
+
+pub fn contend<T: TestCase + 'static>(b: &mut Bencher, numthreads: usize) {
     let lock: T::TestType = T::create_value();
 
     let mut children = Vec::new();
 
-    let num = 20;
-
     let is_done = Arc::new(AtomicBool::new(false));
-    let start = Arc::new(Barrier::new(num + 1));
-    let done = Arc::new(Barrier::new(num + 1));
+    let start = Arc::new(Barrier::new(numthreads + 1));
+    let done = Arc::new(Barrier::new(numthreads + 1));
 
-    for _ in 0..num {
+    for _ in 0..numthreads {
         let lock_ref = lock.clone();
         let start_ref = start.clone();
         let done_ref = done.clone();

@@ -116,7 +116,7 @@ impl TestCase for FutexTestCase {
 }
 
 fn main() {
-    Criterion::default().bench_function("contend_lock_futex", |b| {
-        contend::<FutexTestCase>(b);
-    });
+    Criterion::default().bench_function_over_inputs("contend_lock_futex",
+                                                    |b, &&n| contend::<FutexTestCase>(b, n),
+                                                    contend::STANDARD_TESTS.iter());
 }
