@@ -33,6 +33,8 @@ use qlock_util::cacheline::CacheLineAligned;
 
 use notifier::Notifier;
 
+const RELEASE_PAUSES: usize = 5;
+const HEAD_PAUSES: usize = 1;
 const HEAD_SPINS: usize = 60;
 
 /// An MCS queue-lock
@@ -54,6 +56,33 @@ impl QLock {
 
     pub fn lock<'r>(&'r self, node: &'r mut QLockNode) -> QLockGuard<'r> {
         unsafe {
+            {
+                let mut counter = HEAD_PAUSES;
+                loop {
+                    let guess = self.head.load(Ordering::Relaxed);
+                    if guess == ptr::null_mut() {
+                        (*node).reset();
+                        if self.head
+                            .compare_exchange_weak(ptr::null_mut(),
+                                                   node,
+                                                   Ordering::Release,
+                                                   Ordering::Relaxed)
+                            .is_ok() {
+                            atomic::fence(Ordering::Acquire);
+                            return QLockGuard {
+                                lock: self,
+                                node: node,
+                            };
+                        }
+                    }
+                    if 0 == counter {
+                        break;
+                    }
+                    counter -= 1;
+                    backoff::pause();
+                }
+            }
+
             {
                 let mut counter = HEAD_SPINS;
                 loop {
@@ -117,15 +146,31 @@ impl<'r> Drop for QLockGuard<'r> {
                 }
             }
 
+            let mut counter = RELEASE_PAUSES;
             loop {
+                let next = self.node.next.load(Ordering::Relaxed);
+                if next != ptr::null_mut() {
+                    atomic::fence(Ordering::Acquire);
+                    (*next).signal();
+                    return;
+                }
+                if 0 == counter {
+                    break;
+                }
+                counter -= 1;
+                backoff::pause();
+            }
+
+            loop {
+                backoff::pause();
+                thread::yield_now();
+
                 let next = self.node.next.load(Ordering::Relaxed);
                 if next != ptr::null_mut() {
                     atomic::fence(Ordering::Acquire);
                     (*next).signal();
                     break;
                 }
-                backoff::pause();
-                thread::yield_now();
             }
         }
     }
