@@ -75,10 +75,12 @@ impl QLock {
                             };
                         }
                     }
-                    if 0 == counter {
-                        break;
+                    match counter.checked_sub(1) {
+                        None => break,
+                        Some(newcounter) => {
+                            counter = newcounter;
+                        }
                     }
-                    counter -= 1;
                     backoff::pause();
                 }
             }
@@ -102,10 +104,12 @@ impl QLock {
                             };
                         }
                     }
-                    if 0 == counter {
-                        break;
+                    match counter.checked_sub(1) {
+                        None => break,
+                        Some(newcounter) => {
+                            counter = newcounter;
+                        }
                     }
-                    counter -= 1;
                     backoff::pause();
                     thread::yield_now();
                 }
@@ -154,10 +158,12 @@ impl<'r> Drop for QLockGuard<'r> {
                     (*next).signal();
                     return;
                 }
-                if 0 == counter {
-                    break;
+                match counter.checked_sub(1) {
+                    None => break,
+                    Some(newcounter) => {
+                        counter = newcounter;
+                    }
                 }
-                counter -= 1;
                 backoff::pause();
             }
             backoff::pause();

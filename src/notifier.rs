@@ -57,12 +57,14 @@ impl Notifier {
                     if self.state.load(Ordering::Relaxed) == TRIGGERED {
                         break 'wait_loop;
                     }
-                    if 0 == counter {
-                        break;
+                    match counter.checked_sub(1) {
+                        None => break,
+                        Some(newcounter) => {
+                            counter = newcounter;
+                        }
                     }
                     backoff::pause();
                     thread::yield_now();
-                    counter -= 1;
                 }
             }
 
