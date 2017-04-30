@@ -67,7 +67,7 @@ impl Notifier {
             }
 
             if self.state
-                .compare_exchange(SPINNING, WAITING, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange(SPINNING, WAITING, Ordering::AcqRel, Ordering::Relaxed)
                 .is_err() {
                 break;
             }

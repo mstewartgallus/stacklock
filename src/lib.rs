@@ -54,19 +54,19 @@ impl QLock {
 
     pub fn lock<'r>(&'r self, node: &'r mut QLockNode) -> QLockGuard<'r> {
         unsafe {
-            (*node).reset();
-
             {
                 let mut counter = HEAD_SPINS;
                 loop {
                     let guess = self.head.load(Ordering::Relaxed);
                     if guess == ptr::null_mut() {
+                        (*node).reset();
                         if self.head
                             .compare_exchange_weak(ptr::null_mut(),
                                                    node,
-                                                   Ordering::AcqRel,
+                                                   Ordering::Release,
                                                    Ordering::Relaxed)
                             .is_ok() {
+                            atomic::fence(Ordering::Acquire);
                             return QLockGuard {
                                 lock: self,
                                 node: node,
@@ -82,11 +82,17 @@ impl QLock {
                 }
             }
 
+            (*node).reset();
             let prev = self.head.swap(node, Ordering::AcqRel);
-            if prev != ptr::null_mut() {
-                (*prev).next.store(node, Ordering::Release);
-                node.wait();
+            if prev == ptr::null_mut() {
+                return QLockGuard {
+                    lock: self,
+                    node: node,
+                };
             }
+
+            (*prev).next.store(node, Ordering::Release);
+            node.wait();
 
             QLockGuard {
                 lock: self,
@@ -99,14 +105,12 @@ impl QLock {
 impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         unsafe {
-            atomic::fence(Ordering::Release);
-
-            if self.lock.head.load(Ordering::Acquire) == self.node {
+            if self.lock.head.load(Ordering::Relaxed) == self.node {
                 if self.lock
                     .head
                     .compare_exchange_weak(self.node,
                                            ptr::null_mut(),
-                                           Ordering::AcqRel,
+                                           Ordering::Release,
                                            Ordering::Relaxed)
                     .is_ok() {
                     return;
