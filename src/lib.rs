@@ -82,7 +82,7 @@ impl QLock {
                     backoff::pause();
                 }
             }
-
+            backoff::pause();
             {
                 let mut counter = HEAD_SPINS;
                 loop {
@@ -160,17 +160,16 @@ impl<'r> Drop for QLockGuard<'r> {
                 counter -= 1;
                 backoff::pause();
             }
-
+            backoff::pause();
             loop {
-                backoff::pause();
-                thread::yield_now();
-
                 let next = self.node.next.load(Ordering::Relaxed);
                 if next != ptr::null_mut() {
                     atomic::fence(Ordering::Acquire);
                     (*next).signal();
                     break;
                 }
+                backoff::pause();
+                thread::yield_now();
             }
         }
     }
