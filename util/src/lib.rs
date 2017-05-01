@@ -13,7 +13,7 @@
 // permissions and limitations under the License.
 //
 #![feature(asm)]
-#![feature(repr_align)]
+#![feature(repr_simd)]
 #![feature(attr_literals)]
 
 extern crate rand;
