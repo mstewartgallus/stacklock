@@ -187,6 +187,7 @@ pub struct QLockNode {
 }
 
 impl QLockNode {
+    #[inline]
     pub fn new() -> QLockNode {
         QLockNode {
             notifier: Notifier::new(),

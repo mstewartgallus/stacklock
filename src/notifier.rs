@@ -41,6 +41,7 @@ const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
 impl Notifier {
+    #[inline]
     pub fn new() -> Notifier {
         Notifier { state: CacheLineAligned::new(AtomicU32::new(SPINNING)) }
     }
