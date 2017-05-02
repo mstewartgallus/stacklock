@@ -25,16 +25,23 @@ use qlock_util::cacheline::CacheLineAligned;
 const LOOPS: usize = 30;
 
 const TRIGGERED: u32 = 0;
-const SPINNING: u32 = 1;
-const WAITING: u32 = 2;
+const NOT_TRIGGERED: u32 = 1;
+
+const SPINNING: u32 = 0;
+const NOT_SPINNING: u32 = 1;
 
 // Due to legacy issues on x86 operations on values smaller than 32
 // bits can be slow.
 
+// There are two possible implementations. One that uses 2 variables
+// and one that uses 1 and cmpxchg.  The 2 variable approach reduces
+// variation considerably.
+
 /// A single waiter, single signaller event semaphore.  Signaled once
 /// and then thrown away.
 pub struct Notifier {
-    state: CacheLineAligned<AtomicU32>,
+    triggered: CacheLineAligned<AtomicU32>,
+    spinning: CacheLineAligned<AtomicU32>,
 }
 
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
@@ -43,18 +50,22 @@ const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 impl Notifier {
     #[inline]
     pub fn new() -> Notifier {
-        Notifier { state: CacheLineAligned::new(AtomicU32::new(SPINNING)) }
+        Notifier {
+            triggered: CacheLineAligned::new(AtomicU32::new(NOT_TRIGGERED)),
+            spinning: CacheLineAligned::new(AtomicU32::new(SPINNING)),
+        }
     }
 
     pub fn reset(&self) {
-        self.state.store(SPINNING, Ordering::Release);
+        self.triggered.store(NOT_TRIGGERED, Ordering::Release);
+        self.spinning.store(SPINNING, Ordering::Release);
     }
 
     pub fn wait(&self) {
         'wait_loop: loop {
             // The first load has a different branch probability, so
             // help the predictor
-            if self.state.load(Ordering::Relaxed) == TRIGGERED {
+            if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
                 break 'wait_loop;
             }
 
@@ -64,7 +75,7 @@ impl Notifier {
                     backoff::pause();
                     thread::yield_now();
 
-                    if self.state.load(Ordering::Relaxed) == TRIGGERED {
+                    if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
                         break 'wait_loop;
                     }
                     match counter.checked_sub(1) {
@@ -76,16 +87,16 @@ impl Notifier {
                 }
             }
 
-            if self.state
-                .compare_exchange(SPINNING, WAITING, Ordering::AcqRel, Ordering::Relaxed)
-                .is_err() {
+            self.spinning.store(NOT_SPINNING, Ordering::Release);
+
+            if self.triggered.load(Ordering::Acquire) == TRIGGERED {
                 break;
             }
 
             let result: usize;
             unsafe {
-                let trig: usize = mem::transmute(&self.state);
-                result = syscall!(FUTEX, trig, FUTEX_WAIT_PRIVATE, WAITING, 0);
+                let trig: usize = mem::transmute(&self.triggered);
+                result = syscall!(FUTEX, trig, FUTEX_WAIT_PRIVATE, NOT_TRIGGERED, 0);
             }
             // woken up
             if 0 == result {
@@ -96,11 +107,7 @@ impl Notifier {
                 break;
             }
 
-            if self.state
-                .compare_exchange(WAITING, SPINNING, Ordering::Release, Ordering::Relaxed)
-                .is_err() {
-                break;
-            }
+            self.spinning.store(SPINNING, Ordering::Release);
         }
         atomic::fence(Ordering::Acquire);
     }
@@ -108,13 +115,13 @@ impl Notifier {
     pub fn signal(&self) {
         atomic::fence(Ordering::Release);
 
-        if self.state.fetch_sub(1, Ordering::Relaxed) == 1 {
+        self.triggered.store(TRIGGERED, Ordering::Release);
+        if self.spinning.load(Ordering::Acquire) == SPINNING {
             return;
         }
 
-        self.state.store(TRIGGERED, Ordering::Release);
         unsafe {
-            let trig: usize = mem::transmute(&self.state);
+            let trig: usize = mem::transmute(&self.triggered);
             syscall!(FUTEX, trig, FUTEX_WAKE_PRIVATE, 1);
         }
     }
