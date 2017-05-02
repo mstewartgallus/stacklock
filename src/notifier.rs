@@ -22,7 +22,8 @@ use std::thread;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const LOOPS: usize = 30;
+const PAUSES: usize = 20;
+const LOOPS: usize = 40;
 
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
@@ -69,21 +70,35 @@ impl Notifier {
                 break 'wait_loop;
             }
 
+            backoff::pause();
+
             {
                 let mut counter = LOOPS;
                 loop {
-                    thread::yield_now();
-                    backoff::pause();
+                    let mut inner_counter = backoff::thread_num(PAUSES);
+                    loop {
+                        if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
+                            break 'wait_loop;
+                        }
 
-                    if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
-                        break 'wait_loop;
+                        match inner_counter.checked_sub(1) {
+                            None => break,
+                            Some(newcounter) => {
+                                inner_counter = newcounter;
+                            }
+                        }
+
+                        backoff::pause();
                     }
+
                     match counter.checked_sub(1) {
                         None => break,
                         Some(newcounter) => {
                             counter = newcounter;
                         }
                     }
+
+                    thread::yield_now();
                 }
             }
 

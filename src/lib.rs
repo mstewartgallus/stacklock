@@ -33,9 +33,9 @@ use qlock_util::cacheline::CacheLineAligned;
 
 use notifier::Notifier;
 
-const RELEASE_PAUSES: usize = 5;
+const RELEASE_PAUSES: usize = 10;
 const MAX_EXP: usize = 10;
-const HEAD_SPINS: usize = 30;
+const HEAD_SPINS: usize = 20;
 
 /// An MCS queue-lock
 pub struct QLock {
@@ -169,33 +169,37 @@ impl<'r> Drop for QLockGuard<'r> {
                 }
             }
 
-            let mut counter = RELEASE_PAUSES;
-            loop {
+            {
                 let next = self.node.next.load(Ordering::Relaxed);
                 if next != ptr::null_mut() {
                     atomic::fence(Ordering::Acquire);
                     (*next).signal();
                     return;
                 }
-                match counter.checked_sub(1) {
-                    None => break,
-                    Some(newcounter) => {
-                        counter = newcounter;
-                    }
-                }
-                backoff::pause();
             }
 
-            loop {
-                thread::yield_now();
-                backoff::pause();
+            backoff::pause();
 
-                let next = self.node.next.load(Ordering::Relaxed);
-                if next != ptr::null_mut() {
-                    atomic::fence(Ordering::Acquire);
-                    (*next).signal();
-                    break;
+            loop {
+                let mut counter = backoff::thread_num(RELEASE_PAUSES);
+                loop {
+                    let next = self.node.next.load(Ordering::Relaxed);
+                    if next != ptr::null_mut() {
+                        atomic::fence(Ordering::Acquire);
+                        (*next).signal();
+                        return;
+                    }
+
+                    match counter.checked_sub(1) {
+                        None => break,
+                        Some(newcounter) => {
+                            counter = newcounter;
+                        }
+                    }
+
+                    backoff::pause();
                 }
+                thread::yield_now();
             }
         }
     }
