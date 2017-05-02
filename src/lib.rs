@@ -34,7 +34,6 @@ use qlock_util::cacheline::CacheLineAligned;
 use notifier::Notifier;
 
 const RELEASE_PAUSES: usize = 5;
-const HEAD_PAUSES: usize = 1;
 const HEAD_SPINS: usize = 60;
 
 /// An MCS queue-lock
@@ -56,34 +55,23 @@ impl QLock {
 
     pub fn lock<'r>(&'r self, node: &'r mut QLockNode) -> QLockGuard<'r> {
         unsafe {
-            {
-                let mut counter = HEAD_PAUSES;
-                loop {
-                    let guess = self.head.load(Ordering::Relaxed);
-                    if guess == ptr::null_mut() {
-                        (*node).reset();
-                        if self.head
-                            .compare_exchange_weak(ptr::null_mut(),
-                                                   node,
-                                                   Ordering::Release,
-                                                   Ordering::Relaxed)
-                            .is_ok() {
-                            atomic::fence(Ordering::Acquire);
-                            return QLockGuard {
-                                lock: self,
-                                node: node,
-                            };
-                        }
-                    }
-                    match counter.checked_sub(1) {
-                        None => break,
-                        Some(newcounter) => {
-                            counter = newcounter;
-                        }
-                    }
-                    backoff::pause();
+            // First loads have separate branch probabilities
+            if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
+                (*node).reset();
+                if self.head
+                    .compare_exchange_weak(ptr::null_mut(),
+                                           node,
+                                           Ordering::Release,
+                                           Ordering::Relaxed)
+                    .is_ok() {
+                    atomic::fence(Ordering::Acquire);
+                    return QLockGuard {
+                        lock: self,
+                        node: node,
+                    };
                 }
             }
+
             backoff::pause();
             {
                 let mut counter = HEAD_SPINS;

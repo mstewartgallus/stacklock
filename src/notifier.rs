@@ -52,9 +52,18 @@ impl Notifier {
 
     pub fn wait(&self) {
         'wait_loop: loop {
+            // The first load has a different branch probability, so
+            // help the predictor
+            if self.state.load(Ordering::Relaxed) == TRIGGERED {
+                break 'wait_loop;
+            }
+
             {
                 let mut counter = LOOPS;
                 loop {
+                    backoff::pause();
+                    thread::yield_now();
+
                     if self.state.load(Ordering::Relaxed) == TRIGGERED {
                         break 'wait_loop;
                     }
@@ -64,8 +73,6 @@ impl Notifier {
                             counter = newcounter;
                         }
                     }
-                    backoff::pause();
-                    thread::yield_now();
                 }
             }
 
