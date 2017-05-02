@@ -34,7 +34,7 @@ use qlock_util::cacheline::CacheLineAligned;
 use notifier::Notifier;
 
 const RELEASE_PAUSES: usize = 5;
-const HEAD_SPINS: usize = 60;
+const HEAD_SPINS: usize = 40;
 
 /// An MCS queue-lock
 pub struct QLock {
@@ -72,10 +72,12 @@ impl QLock {
                 }
             }
 
-            backoff::pause();
             {
                 let mut counter = HEAD_SPINS;
                 loop {
+                    backoff::pause();
+                    thread::yield_now();
+
                     let guess = self.head.load(Ordering::Relaxed);
                     if guess == ptr::null_mut() {
                         (*node).reset();
@@ -98,8 +100,6 @@ impl QLock {
                             counter = newcounter;
                         }
                     }
-                    backoff::pause();
-                    thread::yield_now();
                 }
             }
 
