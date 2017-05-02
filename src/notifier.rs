@@ -72,8 +72,8 @@ impl Notifier {
             {
                 let mut counter = LOOPS;
                 loop {
-                    backoff::pause();
                     thread::yield_now();
+                    backoff::pause();
 
                     if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
                         break 'wait_loop;

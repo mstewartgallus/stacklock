@@ -56,8 +56,8 @@ impl Futex {
             return FutexGuard { lock: self };
         }
 
-        backoff::pause();
         thread::yield_now();
+        backoff::pause();
 
         loop {
             let mut counter = 0;
@@ -73,8 +73,8 @@ impl Futex {
                     break;
                 }
 
-                backoff::pause();
                 thread::yield_now();
+                backoff::pause();
                 counter += 1;
             }
 

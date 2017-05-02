@@ -59,8 +59,8 @@ impl Ticket {
                 };
             }
             if counter < NUM_LOOPS {
-                backoff::pause();
                 thread::yield_now();
+                backoff::pause();
                 counter += 1;
             } else {
                 let num = my_ticket % 32;
