@@ -109,8 +109,7 @@ impl QLock {
                     thread::yield_now();
                     backoff::pause();
 
-                    let guess = self.head.load(Ordering::Relaxed);
-                    if guess == ptr::null_mut() {
+                    if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
                         (*node).reset();
                         if self.head
                             .compare_exchange_weak(ptr::null_mut(),
@@ -125,6 +124,25 @@ impl QLock {
                             };
                         }
                     }
+
+                    backoff::pause();
+
+                    if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
+                        (*node).reset();
+                        if self.head
+                            .compare_exchange_weak(ptr::null_mut(),
+                                                   node,
+                                                   Ordering::Release,
+                                                   Ordering::Relaxed)
+                            .is_ok() {
+                            atomic::fence(Ordering::Acquire);
+                            return QLockGuard {
+                                lock: self,
+                                node: node,
+                            };
+                        }
+                    }
+
                     match counter.checked_sub(1) {
                         None => break,
                         Some(newcounter) => {
