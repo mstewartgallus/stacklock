@@ -19,7 +19,8 @@ use std::thread;
 
 use contend::{TestCase, contend};
 
-const NUM_LOOPS: usize = 50;
+const NUM_LOOPS: usize = 30;
+const NUM_PAUSES: usize = 20;
 
 const FUTEX_WAIT_BITSET_PRIVATE: usize = 9 | 128;
 const FUTEX_WAKE_BITSET_PRIVATE: usize = 10 | 128;
@@ -48,35 +49,45 @@ impl Ticket {
     #[inline(never)]
     fn lock<'r>(&'r self) -> TicketGuard<'r> {
         let my_ticket = self.high.fetch_add(1, Ordering::AcqRel);
-        let mut counter = 0;
         let mut current_ticket;
         loop {
-            current_ticket = self.low.load(Ordering::Relaxed);
-            if current_ticket == my_ticket {
-                return TicketGuard {
-                    lock: self,
-                    ticket: my_ticket,
-                };
-            }
-            if counter < NUM_LOOPS {
-                thread::yield_now();
-                backoff::pause();
-                counter += 1;
-            } else {
-                let num = my_ticket % 32;
-                let bitset = 1u32 << num;
-                self.spinners.fetch_or(bitset, Ordering::Release);
-                unsafe {
-                    let val_ptr: usize = mem::transmute(&self.low);
-                    syscall!(FUTEX,
-                             val_ptr,
-                             FUTEX_WAIT_BITSET_PRIVATE,
-                             current_ticket,
-                             0,
-                             0,
-                             bitset);
+            let mut counter = 0;
+            loop {
+                let inner_pauses = backoff::thread_num(NUM_PAUSES);
+                let mut inner_counter = 0;
+                loop {
+                    current_ticket = self.low.load(Ordering::Relaxed);
+                    if current_ticket == my_ticket {
+                        return TicketGuard {
+                            lock: self,
+                            ticket: my_ticket,
+                        };
+                    }
+                    if inner_counter >= inner_pauses {
+                        break;
+                    }
+                    inner_counter += 1;
+                    backoff::pause();
                 }
-                counter = 0;
+                if counter >= NUM_LOOPS {
+                    break;
+                }
+                counter += 1;
+                thread::yield_now();
+            }
+
+            let num = my_ticket % 32;
+            let bitset = 1u32 << num;
+            self.spinners.fetch_or(bitset, Ordering::Release);
+            unsafe {
+                let val_ptr: usize = mem::transmute(&self.low);
+                syscall!(FUTEX,
+                         val_ptr,
+                         FUTEX_WAIT_BITSET_PRIVATE,
+                         current_ticket,
+                         0,
+                         0,
+                         bitset);
             }
         }
     }
