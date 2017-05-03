@@ -22,7 +22,8 @@ use std::thread;
 
 use contend::{TestCase, contend};
 
-const NUM_LOOPS: usize = 40;
+const NUM_LOOPS: usize = 30;
+const NUM_PAUSES: usize = 10;
 
 struct Futex {
     val: CacheLineAligned<AtomicU32>,
@@ -56,26 +57,35 @@ impl Futex {
             return FutexGuard { lock: self };
         }
 
-        thread::yield_now();
         backoff::pause();
 
         loop {
-            let mut counter = 0;
+            let mut counter = NUM_LOOPS;
             loop {
-                if self.val.load(Ordering::Relaxed) != 2 {
-                    result = self.val.swap(2, Ordering::Release);
-                    if 0 == result {
-                        atomic::fence(Ordering::Acquire);
-                        return FutexGuard { lock: self };
+                let mut inner_counter = backoff::thread_num(NUM_PAUSES);
+                loop {
+                    if self.val.load(Ordering::Relaxed) != 2 {
+                        result = self.val.swap(2, Ordering::Release);
+                        if 0 == result {
+                            atomic::fence(Ordering::Acquire);
+                            return FutexGuard { lock: self };
+                        }
+                    }
+                    match inner_counter.checked_sub(1) {
+                        None => break,
+                        Some(newcounter) => {
+                            inner_counter = newcounter;
+                        }
+                    }
+                    backoff::pause();
+                }
+                match counter.checked_sub(1) {
+                    None => break,
+                    Some(newcounter) => {
+                        counter = newcounter;
                     }
                 }
-                if counter > NUM_LOOPS {
-                    break;
-                }
-
                 thread::yield_now();
-                backoff::pause();
-                counter += 1;
             }
 
             unsafe {
