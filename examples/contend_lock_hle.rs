@@ -51,18 +51,20 @@ impl Hle {
             thread::yield_now();
             backoff::pause();
 
-            let mut prev: u32 = 1;
-            unsafe {
-                // xchg implicitly has a lock prefix
-                asm!("xacquire; xchg $0, $1"
-                     : "+r" (prev), "+*m" (&*self.val)
-                     :
-                     : "memory"
-                     : "volatile", "intel");
-            }
-            if 0 == prev {
-                atomic::fence(Ordering::Acquire);
-                return HleGuard { lock: self };
+            if self.val.load(Ordering::Relaxed) == 0 {
+                let mut prev: u32 = 1;
+                unsafe {
+                    // xchg implicitly has a lock prefix
+                    asm!("xacquire; xchg $0, $1"
+                         : "+r" (prev), "+*m" (&*self.val)
+                         :
+                         : "memory"
+                         : "volatile", "intel");
+                }
+                if 0 == prev {
+                    atomic::fence(Ordering::Acquire);
+                    return HleGuard { lock: self };
+                }
             }
         }
     }
