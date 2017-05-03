@@ -12,8 +12,8 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
-#![feature(asm)]
 #![feature(repr_align)]
+#![feature(hint_core_should_pause)]
 #![feature(attr_literals)]
 
 extern crate rand;

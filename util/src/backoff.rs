@@ -14,24 +14,15 @@
 //
 use std::cell::RefCell;
 use std::usize;
+use std::sync::atomic;
 
 use rand::{Rng, XorShiftRng};
 use rand;
 
-#[inline]
+#[inline(always)]
 pub fn pause() {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    unsafe {
-        asm!("pause" ::: "memory" : "volatile");
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    unsafe {
-        asm!("yield" ::: "memory" : "volatile");
-    }
+    atomic::hint_core_should_pause();
 }
-
-// Just use Knuth's MMIX LCG.
 
 thread_local! {
     static RNG: RefCell<XorShiftRng> = RefCell::new(rand::weak_rng());
