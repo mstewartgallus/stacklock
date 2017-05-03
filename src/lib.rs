@@ -34,8 +34,11 @@ use qlock_util::cacheline::CacheLineAligned;
 use notifier::Notifier;
 
 const RELEASE_PAUSES: usize = 10;
+
+const YIELD_INTERVAL: usize = 4;
 const MAX_EXP: usize = 10;
-const HEAD_SPINS: usize = 20;
+
+const HEAD_SPINS: usize = 30;
 
 /// An MCS queue-lock
 pub struct QLock {
@@ -73,15 +76,12 @@ impl QLock {
                 }
             }
 
+            backoff::pause();
+
             {
                 let mut counter = 0;
                 loop {
-                    for _ in 0..1 << counter {
-                        backoff::pause();
-                    }
-
-                    let guess = self.head.load(Ordering::Relaxed);
-                    if guess == ptr::null_mut() {
+                    if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
                         (*node).reset();
                         if self.head
                             .compare_exchange_weak(ptr::null_mut(),
@@ -96,57 +96,24 @@ impl QLock {
                             };
                         }
                     }
-                    counter += 1;
-                    if counter > MAX_EXP {
+                    if counter >= HEAD_SPINS {
                         break;
                     }
-                }
-            }
+                    counter += 1;
 
-            {
-                let mut counter = HEAD_SPINS;
-                loop {
-                    thread::yield_now();
-                    backoff::pause();
-
-                    if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
-                        (*node).reset();
-                        if self.head
-                            .compare_exchange_weak(ptr::null_mut(),
-                                                   node,
-                                                   Ordering::Release,
-                                                   Ordering::Relaxed)
-                            .is_ok() {
-                            atomic::fence(Ordering::Acquire);
-                            return QLockGuard {
-                                lock: self,
-                                node: node,
-                            };
+                    if counter % YIELD_INTERVAL == 0 {
+                        thread::yield_now();
+                        backoff::pause();
+                    } else {
+                        let exp;
+                        if counter > MAX_EXP {
+                            exp = 1 << MAX_EXP;
+                        } else {
+                            exp = 1 << counter;
                         }
-                    }
 
-                    backoff::pause();
-
-                    if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
-                        (*node).reset();
-                        if self.head
-                            .compare_exchange_weak(ptr::null_mut(),
-                                                   node,
-                                                   Ordering::Release,
-                                                   Ordering::Relaxed)
-                            .is_ok() {
-                            atomic::fence(Ordering::Acquire);
-                            return QLockGuard {
-                                lock: self,
-                                node: node,
-                            };
-                        }
-                    }
-
-                    match counter.checked_sub(1) {
-                        None => break,
-                        Some(newcounter) => {
-                            counter = newcounter;
+                        for _ in 0..backoff::thread_num(exp) {
+                            backoff::pause();
                         }
                     }
                 }
