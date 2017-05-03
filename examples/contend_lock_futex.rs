@@ -23,7 +23,7 @@ use std::thread;
 use contend::{TestCase, contend};
 
 const NUM_LOOPS: usize = 30;
-const NUM_PAUSES: usize = 10;
+const NUM_PAUSES: usize = 20;
 
 struct Futex {
     val: CacheLineAligned<AtomicU32>,
