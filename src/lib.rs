@@ -38,7 +38,7 @@ const RELEASE_PAUSES: usize = 10;
 const YIELD_INTERVAL: usize = 4;
 const MAX_EXP: usize = 10;
 
-const HEAD_SPINS: usize = 15;
+const HEAD_SPINS: usize = 20;
 
 /// An MCS queue-lock
 pub struct QLock {
@@ -99,23 +99,22 @@ impl QLock {
                     if counter >= HEAD_SPINS {
                         break;
                     }
-                    counter += 1;
 
                     if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
                         thread::yield_now();
-                        backoff::pause();
-                    } else {
-                        let exp;
-                        if counter > MAX_EXP {
-                            exp = 1 << MAX_EXP;
-                        } else {
-                            exp = 1 << counter;
-                        }
-
-                        for _ in 0..backoff::thread_num(exp) {
-                            backoff::pause();
-                        }
                     }
+                    let exp;
+                    if counter > MAX_EXP {
+                        exp = 1 << MAX_EXP;
+                    } else {
+                        exp = 1 << counter;
+                    }
+
+                    for _ in 0..backoff::thread_num(1, exp) {
+                        backoff::pause();
+                    }
+
+                    counter += 1;
                 }
             }
 
@@ -166,7 +165,7 @@ impl<'r> Drop for QLockGuard<'r> {
             backoff::pause();
 
             loop {
-                let mut counter = backoff::thread_num(RELEASE_PAUSES);
+                let mut counter = backoff::thread_num(0, RELEASE_PAUSES);
                 loop {
                     let next = self.node.next.load(Ordering::Relaxed);
                     if next != ptr::null_mut() {

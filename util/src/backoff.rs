@@ -30,6 +30,6 @@ thread_local! {
 
 /// A thread random number
 #[inline]
-pub fn thread_num(max: usize) -> usize {
-    return RNG.with(|rng| rng.borrow_mut().gen_range(0, max + 1));
+pub fn thread_num(min: usize, max: usize) -> usize {
+    return RNG.with(|rng| rng.borrow_mut().gen_range(min, max + 1));
 }

@@ -22,10 +22,9 @@ use std::thread;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const MIN_EXP: usize = 3;
 const MAX_EXP: usize = 8;
 const YIELD_INTERVAL: usize = 4;
-const LOOPS: usize = 30;
+const LOOPS: usize = 40;
 
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
@@ -83,23 +82,23 @@ impl Notifier {
                     if counter >= LOOPS {
                         break;
                     }
-                    counter += 1;
 
                     if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
                         thread::yield_now();
-                        backoff::pause();
-                    } else {
-                        let exp;
-                        if (MIN_EXP + counter) > MAX_EXP {
-                            exp = 1 << MAX_EXP;
-                        } else {
-                            exp = 1 << (MIN_EXP + counter);
-                        }
-
-                        for _ in 0..backoff::thread_num(exp) {
-                            backoff::pause();
-                        }
                     }
+
+                    let exp;
+                    if counter > MAX_EXP {
+                        exp = 1 << MAX_EXP;
+                    } else {
+                        exp = 1 << counter;
+                    }
+
+                    for _ in 0..backoff::thread_num(1, exp) {
+                        backoff::pause();
+                    }
+
+                    counter += 1;
                 }
             }
 
