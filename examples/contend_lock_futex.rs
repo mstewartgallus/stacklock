@@ -62,7 +62,7 @@ impl Futex {
         loop {
             let mut counter = NUM_LOOPS;
             loop {
-                let mut inner_counter = backoff::thread_num(NUM_PAUSES);
+                let mut inner_counter = backoff::thread_num(0, NUM_PAUSES);
                 loop {
                     if self.val.load(Ordering::Relaxed) != 2 {
                         result = self.val.swap(2, Ordering::Release);

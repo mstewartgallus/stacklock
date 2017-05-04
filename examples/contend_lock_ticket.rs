@@ -53,7 +53,7 @@ impl Ticket {
         loop {
             let mut counter = 0;
             loop {
-                let inner_pauses = backoff::thread_num(NUM_PAUSES);
+                let inner_pauses = backoff::thread_num(0, NUM_PAUSES);
                 let mut inner_counter = 0;
                 loop {
                     current_ticket = self.low.load(Ordering::Relaxed);

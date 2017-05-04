@@ -11,7 +11,7 @@ pub trait TestCase {
     fn do_stuff_with_value(value: &Self::TestType, times: usize);
 }
 
-pub const STANDARD_TESTS: [usize; 4] = [2, 3, 4, 5];
+pub const STANDARD_TESTS: [usize; 4] = [2, 3, 4, 20];
 
 pub fn contend<T: TestCase + 'static>(b: &mut Bencher, numthreads: usize) {
     let lock: T::TestType = T::create_value();
