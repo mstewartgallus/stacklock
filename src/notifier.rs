@@ -22,8 +22,10 @@ use std::thread;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const PAUSES: usize = 20;
-const LOOPS: usize = 40;
+const MIN_EXP: usize = 3;
+const MAX_EXP: usize = 9;
+const YIELD_INTERVAL: usize = 4;
+const LOOPS: usize = 30;
 
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
@@ -73,32 +75,31 @@ impl Notifier {
             backoff::pause();
 
             {
-                let mut counter = LOOPS;
+                let mut counter = 0;
                 loop {
-                    let mut inner_counter = backoff::thread_num(PAUSES);
-                    loop {
-                        if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
-                            break 'wait_loop;
-                        }
+                    if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
+                        break 'wait_loop;
+                    }
+                    if counter >= LOOPS {
+                        break;
+                    }
+                    counter += 1;
 
-                        match inner_counter.checked_sub(1) {
-                            None => break,
-                            Some(newcounter) => {
-                                inner_counter = newcounter;
-                            }
-                        }
-
+                    if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
+                        thread::yield_now();
                         backoff::pause();
-                    }
+                    } else {
+                        let exp;
+                        if (MIN_EXP + counter) > MAX_EXP {
+                            exp = 1 << MAX_EXP;
+                        } else {
+                            exp = 1 << (MIN_EXP + counter);
+                        }
 
-                    match counter.checked_sub(1) {
-                        None => break,
-                        Some(newcounter) => {
-                            counter = newcounter;
+                        for _ in 0..backoff::thread_num(exp) {
+                            backoff::pause();
                         }
                     }
-
-                    thread::yield_now();
                 }
             }
 

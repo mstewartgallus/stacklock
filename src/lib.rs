@@ -38,7 +38,7 @@ const RELEASE_PAUSES: usize = 10;
 const YIELD_INTERVAL: usize = 4;
 const MAX_EXP: usize = 10;
 
-const HEAD_SPINS: usize = 30;
+const HEAD_SPINS: usize = 15;
 
 /// An MCS queue-lock
 pub struct QLock {
@@ -101,7 +101,7 @@ impl QLock {
                     }
                     counter += 1;
 
-                    if counter % YIELD_INTERVAL == 0 {
+                    if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
                         thread::yield_now();
                         backoff::pause();
                     } else {
