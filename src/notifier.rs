@@ -23,7 +23,7 @@ use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
 const MIN_EXP: usize = 3;
-const MAX_EXP: usize = 9;
+const MAX_EXP: usize = 8;
 const YIELD_INTERVAL: usize = 4;
 const LOOPS: usize = 30;
 
