@@ -20,7 +20,8 @@ use std::thread;
 use contend::{TestCase, contend};
 
 const NUM_LOOPS: usize = 30;
-const NUM_PAUSES: usize = 20;
+const MAX_EXP: usize = 9;
+const YIELD_INTERVAL: usize = 4;
 
 const FUTEX_WAIT_BITSET_PRIVATE: usize = 9 | 128;
 const FUTEX_WAKE_BITSET_PRIVATE: usize = 10 | 128;
@@ -53,27 +54,29 @@ impl Ticket {
         loop {
             let mut counter = 0;
             loop {
-                let inner_pauses = backoff::thread_num(0, NUM_PAUSES);
-                let mut inner_counter = 0;
-                loop {
-                    current_ticket = self.low.load(Ordering::Relaxed);
-                    if current_ticket == my_ticket {
-                        return TicketGuard {
-                            lock: self,
-                            ticket: my_ticket,
-                        };
-                    }
-                    if inner_counter >= inner_pauses {
-                        break;
-                    }
-                    inner_counter += 1;
-                    backoff::pause();
+                current_ticket = self.low.load(Ordering::Relaxed);
+                if current_ticket == my_ticket {
+                    return TicketGuard {
+                        lock: self,
+                        ticket: my_ticket,
+                    };
                 }
                 if counter >= NUM_LOOPS {
                     break;
                 }
+                if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
+                    thread::yield_now();
+                }
+                let exp;
+                if counter > MAX_EXP {
+                    exp = 1 << MAX_EXP;
+                } else {
+                    exp = 1 << counter;
+                }
+                for _ in 0..backoff::thread_num(1, exp) {
+                    backoff::pause();
+                }
                 counter += 1;
-                thread::yield_now();
             }
 
             let num = my_ticket % 32;
