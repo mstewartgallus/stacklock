@@ -17,6 +17,8 @@ use std::thread;
 
 use contend::{TestCase, contend};
 
+const MAX_EXP: usize = 7;
+
 struct Hle {
     val: CacheLineAligned<AtomicU32>,
 }
@@ -47,9 +49,19 @@ impl Hle {
             return HleGuard { lock: self };
         }
 
+        let mut counter = 0;
         loop {
             thread::yield_now();
-            backoff::pause();
+            let exp;
+            if counter > MAX_EXP {
+                exp = 1 << MAX_EXP;
+            } else {
+                exp = 1 << counter;
+                counter += 1;
+            }
+            for _ in 0..backoff::thread_num(1, exp) {
+                backoff::pause();
+            }
 
             if self.val.load(Ordering::Relaxed) == 0 {
                 let mut prev: u32 = 1;
