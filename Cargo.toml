@@ -18,12 +18,14 @@ lazy_static = "0.2.8"
 qlock_util = { path = "util" }
 
 [dev-dependencies]
-parking_lot = "0.4"
+parking_lot = { version = "0.4" }
 criterion = { git = "https://github.com/japaric/criterion.rs" }
-
 
 [profile.release]
 debug = true
 
 [profile.dev]
 opt-level = 3
+
+[replace]
+"criterion-stats:0.1.0" = { git = 'https://github.com/sstewartgallus/stats.rs', branch = 'nounique' }
