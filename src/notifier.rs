@@ -16,7 +16,7 @@ use libc;
 
 use std::mem;
 use std::sync::atomic;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use qlock_util::backoff;
@@ -26,11 +26,11 @@ const MAX_EXP: usize = 8;
 const YIELD_INTERVAL: usize = 3;
 const LOOPS: usize = 40;
 
-const TRIGGERED: u32 = 0;
-const NOT_TRIGGERED: u32 = 1;
+const TRIGGERED: bool = false;
+const NOT_TRIGGERED: bool = true;
 
-const SPINNING: u32 = 0;
-const NOT_SPINNING: u32 = 1;
+const SPINNING: bool = false;
+const NOT_SPINNING: bool = true;
 
 // Due to legacy issues on x86 operations on values smaller than 32
 // bits can be slow.
@@ -42,8 +42,8 @@ const NOT_SPINNING: u32 = 1;
 /// A single waiter, single signaller event semaphore.  Signaled once
 /// and then thrown away.
 pub struct Notifier {
-    triggered: CacheLineAligned<AtomicU32>,
-    spinning: CacheLineAligned<AtomicU32>,
+    triggered: CacheLineAligned<AtomicBool>,
+    spinning: CacheLineAligned<AtomicBool>,
 }
 
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
@@ -53,8 +53,8 @@ impl Notifier {
     #[inline]
     pub fn new() -> Notifier {
         Notifier {
-            triggered: CacheLineAligned::new(AtomicU32::new(NOT_TRIGGERED)),
-            spinning: CacheLineAligned::new(AtomicU32::new(SPINNING)),
+            triggered: CacheLineAligned::new(AtomicBool::new(NOT_TRIGGERED)),
+            spinning: CacheLineAligned::new(AtomicBool::new(SPINNING)),
         }
     }
 
