@@ -110,8 +110,17 @@ impl QLock {
                         exp = 1 << counter;
                     }
 
-                    for _ in 0..backoff::thread_num(1, exp) {
+                    // Unroll the loop for better performance
+                    let spins = backoff::thread_num(1, exp);
+                    let unroll = 4;
+                    for _ in 0..spins % unroll {
                         backoff::pause();
+                    }
+
+                    for _ in 0..spins / unroll {
+                        for _ in 0..unroll {
+                            backoff::pause();
+                        }
                     }
 
                     counter += 1;
