@@ -16,7 +16,7 @@ use libc;
 
 use std::mem;
 use std::sync::atomic;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 
 use qlock_util::backoff;
@@ -26,8 +26,8 @@ const MAX_EXP: usize = 8;
 const YIELD_INTERVAL: usize = 3;
 const LOOPS: usize = 40;
 
-const TRIGGERED: bool = false;
-const NOT_TRIGGERED: bool = true;
+const TRIGGERED: u32 = 0;
+const NOT_TRIGGERED: u32 = 1;
 
 const SPINNING: bool = false;
 const NOT_SPINNING: bool = true;
@@ -42,7 +42,8 @@ const NOT_SPINNING: bool = true;
 /// A single waiter, single signaller event semaphore.  Signaled once
 /// and then thrown away.
 pub struct Notifier {
-    triggered: CacheLineAligned<AtomicBool>,
+    // Must be 32 bits for futex system calls
+    triggered: CacheLineAligned<AtomicU32>,
     spinning: CacheLineAligned<AtomicBool>,
 }
 
@@ -53,17 +54,20 @@ impl Notifier {
     #[inline]
     pub fn new() -> Notifier {
         Notifier {
-            triggered: CacheLineAligned::new(AtomicBool::new(NOT_TRIGGERED)),
+            triggered: CacheLineAligned::new(AtomicU32::new(NOT_TRIGGERED)),
             spinning: CacheLineAligned::new(AtomicBool::new(SPINNING)),
         }
     }
 
     pub fn reset(&self) {
-        self.triggered.store(NOT_TRIGGERED, Ordering::Release);
-        self.spinning.store(SPINNING, Ordering::Release);
+        self.triggered.store(NOT_TRIGGERED, Ordering::Relaxed);
+        self.spinning.store(SPINNING, Ordering::Relaxed);
+        atomic::fence(Ordering::Release);
     }
 
     pub fn wait(&self) {
+        atomic::fence(Ordering::Release);
+
         'wait_loop: loop {
             // The first load has a different branch probability, so
             // help the predictor
@@ -96,7 +100,7 @@ impl Notifier {
 
                     // Unroll the loop for better performance
                     let spins = backoff::thread_num(1, exp);
-                    let unroll = 8;
+                    let unroll = 16;
                     for _ in 0..spins % unroll {
                         backoff::pause();
                     }
