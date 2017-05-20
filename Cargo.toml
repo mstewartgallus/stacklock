@@ -7,22 +7,15 @@ readme = "README"
 license = "Apache-2.0"
 categories = ["concurrency", "data-structures"]
 
-[features]
-nightly = []
-
 [dependencies]
 syscall = "0.2"
 libc = "0.2"
-lazy_static = "0.2.8"
 
 qlock_util = { path = "util" }
 
 [dev-dependencies]
 parking_lot = { version = "0.4" }
 criterion = { git = "https://github.com/japaric/criterion.rs" }
-
-[profile.release]
-debug = true
 
 [profile.dev]
 opt-level = 3
