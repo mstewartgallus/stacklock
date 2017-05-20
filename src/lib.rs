@@ -38,7 +38,7 @@ const RELEASE_PAUSES: usize = 10;
 const YIELD_INTERVAL: usize = 3;
 const MAX_EXP: usize = 10;
 
-const HEAD_SPINS: usize = 19;
+const HEAD_SPINS: usize = 18;
 
 /// An MCS queue-lock
 pub struct QLock {
