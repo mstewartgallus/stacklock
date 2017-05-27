@@ -1,6 +1,6 @@
 extern crate qlock;
 
-use qlock::{QLock, QLockNode};
+use qlock::QLock;
 use std::sync::{Arc, Barrier};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -15,8 +15,7 @@ fn test_as_lock() {
 
         let child = thread::spawn(move || {
             for _ in 0..20 {
-                let mut node = QLockNode::new();
-                let _ = lock_ref.lock(&mut node);
+                let _ = lock_ref.lock();
             }
         });
         children.push(child);
@@ -45,8 +44,7 @@ fn test_race() {
             barrier_ref.wait();
 
             for _ in 0..1000 {
-                let mut node = QLockNode::new();
-                let _val = lock_ref.lock(&mut node);
+                let _val = lock_ref.lock();
                 for _ in 0..20 {
                     let prev = racer_ref.swap(true, Ordering::Relaxed);
                     assert_eq!(prev, false);

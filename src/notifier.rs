@@ -22,9 +22,9 @@ use std::thread;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const MAX_EXP: usize = 8;
-const YIELD_INTERVAL: usize = 3;
-const LOOPS: usize = 40;
+const MAX_EXP: usize = 7;
+const YIELD_INTERVAL: usize = 8;
+const LOOPS: usize = 10;
 
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
@@ -51,18 +51,12 @@ const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
 impl Notifier {
-    #[inline]
+    #[inline(always)]
     pub fn new() -> Notifier {
         Notifier {
             triggered: CacheLineAligned::new(AtomicU32::new(NOT_TRIGGERED)),
             spinning: CacheLineAligned::new(AtomicBool::new(SPINNING)),
         }
-    }
-
-    pub fn reset(&self) {
-        self.triggered.store(NOT_TRIGGERED, Ordering::Relaxed);
-        self.spinning.store(SPINNING, Ordering::Relaxed);
-        atomic::fence(Ordering::Release);
     }
 
     pub fn wait(&self) {

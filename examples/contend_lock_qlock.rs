@@ -3,7 +3,7 @@ extern crate qlock;
 
 mod contend;
 
-use qlock::{QLock, QLockNode};
+use qlock::QLock;
 
 use criterion::Criterion;
 use std::sync::Arc;
@@ -21,8 +21,7 @@ impl TestCase for QLockTestCase {
     fn do_stuff_with_value(value: &Self::TestType, times: usize) {
         let borrowed = &*value;
         for _ in 0..times {
-            let mut node = QLockNode::new();
-            let _ = borrowed.lock(&mut node);
+            let _ = borrowed.lock();
         }
     }
 }

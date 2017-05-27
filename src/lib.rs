@@ -12,6 +12,7 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
+#![feature(asm)]
 #![feature(integer_atomics)]
 
 #[macro_use]
@@ -21,127 +22,60 @@ extern crate libc;
 
 extern crate qlock_util;
 
+mod mutex;
+mod stack;
 mod notifier;
 
 use std::ptr;
-use std::sync::atomic;
-use std::sync::atomic::{AtomicPtr, Ordering};
-use std::thread;
 
-use qlock_util::backoff;
-use qlock_util::cacheline::CacheLineAligned;
+use stack::{Node, Stack};
+use mutex::RawMutex;
 
-use notifier::Notifier;
 
-const RELEASE_PAUSES: usize = 10;
-
-const YIELD_INTERVAL: usize = 3;
-const MAX_EXP: usize = 10;
-
-const HEAD_SPINS: usize = 18;
-
-/// An MCS queue-lock
 pub struct QLock {
-    head: CacheLineAligned<AtomicPtr<QLockNode>>,
+    stack: Stack,
+    lock: RawMutex,
 }
 unsafe impl Send for QLock {}
 unsafe impl Sync for QLock {}
 
 pub struct QLockGuard<'r> {
     lock: &'r QLock,
-    node: &'r mut QLockNode,
 }
 
 impl QLock {
     pub fn new() -> Self {
-        QLock { head: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())) }
+        QLock {
+            stack: Stack::new(),
+            lock: RawMutex::new(),
+        }
     }
 
-    pub fn lock<'r>(&'r self, node: &'r mut QLockNode) -> QLockGuard<'r> {
+    pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
         unsafe {
-            // First loads have separate branch probabilities
-            if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
-                (*node).reset();
-                if self.head
-                    .compare_exchange_weak(ptr::null_mut(),
-                                           node,
-                                           Ordering::Release,
-                                           Ordering::Relaxed)
-                    .is_ok() {
-                    atomic::fence(Ordering::Acquire);
-                    return QLockGuard {
-                        lock: self,
-                        node: node,
-                    };
-                }
-            }
-
-            backoff::pause();
-
             {
-                let mut counter = 0;
-                loop {
-                    if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
-                        (*node).reset();
-                        if self.head
-                            .compare_exchange_weak(ptr::null_mut(),
-                                                   node,
-                                                   Ordering::Release,
-                                                   Ordering::Relaxed)
-                            .is_ok() {
-                            atomic::fence(Ordering::Acquire);
-                            return QLockGuard {
-                                lock: self,
-                                node: node,
-                            };
-                        }
-                    }
-                    if counter >= HEAD_SPINS {
-                        break;
-                    }
+                let mut node = Node::new();
+                self.stack.push(&mut node);
 
-                    if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
-                        thread::yield_now();
-                    }
-                    let exp;
-                    if counter > MAX_EXP {
-                        exp = 1 << MAX_EXP;
-                    } else {
-                        exp = 1 << counter;
-                    }
+                self.flush();
 
-                    // Unroll the loop for better performance
-                    let spins = backoff::thread_num(1, exp);
-                    let unroll = 4;
-                    for _ in 0..spins % unroll {
-                        backoff::pause();
-                    }
+                node.wait();
+            }
 
-                    for _ in 0..spins / unroll {
-                        for _ in 0..unroll {
-                            backoff::pause();
-                        }
-                    }
+            return QLockGuard { lock: self };
+        }
+    }
 
-                    counter += 1;
+    fn flush(&self) {
+        unsafe {
+            if self.lock.try_acquire() {
+                let popped = self.stack.pop();
+                if popped != ptr::null_mut() {
+                    (*popped).signal();
+                    return;
                 }
-            }
 
-            (*node).reset();
-            let prev = self.head.swap(node, Ordering::AcqRel);
-            if prev == ptr::null_mut() {
-                return QLockGuard {
-                    lock: self,
-                    node: node,
-                };
-            }
-
-            (*prev).next.store(node, Ordering::Release);
-            node.wait();
-
-            QLockGuard {
-                lock: self,
-                node: node,
+                self.lock.release();
             }
         }
     }
@@ -150,78 +84,15 @@ impl QLock {
 impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         unsafe {
-            if self.lock.head.load(Ordering::Relaxed) == self.node {
-                if self.lock
-                    .head
-                    .compare_exchange_weak(self.node,
-                                           ptr::null_mut(),
-                                           Ordering::Release,
-                                           Ordering::Relaxed)
-                    .is_ok() {
-                    return;
-                }
-            }
-
-            {
-                let next = self.node.next.load(Ordering::Relaxed);
-                if next != ptr::null_mut() {
-                    atomic::fence(Ordering::Acquire);
-                    (*next).signal();
-                    return;
-                }
-            }
-
-            backoff::pause();
-
-            loop {
-                let mut counter = backoff::thread_num(0, RELEASE_PAUSES);
-                loop {
-                    let next = self.node.next.load(Ordering::Relaxed);
-                    if next != ptr::null_mut() {
-                        atomic::fence(Ordering::Acquire);
-                        (*next).signal();
-                        return;
-                    }
-
-                    match counter.checked_sub(1) {
-                        None => break,
-                        Some(newcounter) => {
-                            counter = newcounter;
-                        }
-                    }
-
-                    backoff::pause();
-                }
-                thread::yield_now();
+            let popped = self.lock.stack.pop();
+            if popped != ptr::null_mut() {
+                (*popped).signal();
+                return;
             }
         }
-    }
-}
 
-pub struct QLockNode {
-    notifier: Notifier,
-    next: CacheLineAligned<AtomicPtr<QLockNode>>,
-}
+        self.lock.lock.release();
 
-impl QLockNode {
-    #[inline]
-    pub fn new() -> QLockNode {
-        QLockNode {
-            notifier: Notifier::new(),
-            next: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())),
-        }
-    }
-
-    fn reset(&self) {
-        self.next.store(ptr::null_mut(), Ordering::Relaxed);
-        self.notifier.reset();
-    }
-
-    fn signal(&self) {
-        self.notifier.signal();
-    }
-
-    fn wait(&self) {
-        self.notifier.wait();
+        self.lock.flush();
     }
 }
