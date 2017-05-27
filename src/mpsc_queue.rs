@@ -14,13 +14,13 @@
 use std::ptr;
 use std::cell::UnsafeCell;
 
-use stack::Stack;
+use stack::{NonatomicStack, Stack};
 pub use stack::Node;
 
 /// Multiple producer, single consumer queue
 pub struct Queue {
     inbox: Stack,
-    outbox: UnsafeCell<Stack>,
+    outbox: UnsafeCell<NonatomicStack>,
 }
 
 impl Queue {
@@ -28,7 +28,7 @@ impl Queue {
     pub fn new() -> Queue {
         Queue {
             inbox: Stack::new(),
-            outbox: UnsafeCell::new(Stack::new()),
+            outbox: UnsafeCell::new(NonatomicStack::new()),
         }
     }
 

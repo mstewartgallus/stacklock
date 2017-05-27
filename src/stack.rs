@@ -46,6 +46,10 @@ impl Node {
     }
 }
 
+pub struct NonatomicStack {
+    head: *mut Node,
+}
+
 pub struct Stack {
     head: CacheLineAligned<AtomicPtr<Node>>,
 }
@@ -90,16 +94,22 @@ impl Stack {
         }
     }
 
-    pub fn drain(&self) -> Stack {
+    pub fn drain(&self) -> NonatomicStack {
         let head = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
-        Stack { head: CacheLineAligned::new(AtomicPtr::new(head)) }
+        NonatomicStack { head: head }
+    }
+}
+
+impl NonatomicStack {
+    #[inline(always)]
+    pub fn new() -> Self {
+        NonatomicStack { head: ptr::null_mut() }
     }
 
-    pub fn reverse(self) -> Stack {
+    pub fn reverse(self) -> NonatomicStack {
         unsafe {
-            let p = self.head.load(Ordering::Acquire);
             let mut new = ptr::null_mut();
-            let mut old = p;
+            let mut old = self.head;
             loop {
                 if ptr::null_mut() == old {
                     break;
@@ -109,20 +119,20 @@ impl Stack {
                 *(*node).next = new;
                 new = node;
             }
-            Stack { head: CacheLineAligned::new(AtomicPtr::new(new)) }
+            NonatomicStack { head: new }
         }
     }
 
     pub fn pop(&mut self) -> *mut Node {
         unsafe {
-            let head = self.head.load(Ordering::Acquire);
+            let head = self.head;
             if head == ptr::null_mut() {
                 return ptr::null_mut();
             }
 
             let next = *(*head).next;
 
-            self.head.store(next, Ordering::Release);
+            self.head = next;
 
             return head;
         }
