@@ -82,12 +82,47 @@ impl Stack {
     }
 
     pub fn drain(&self) -> NonatomicStack {
-        if self.head.load(Ordering::Relaxed) == ptr::null_mut() {
+        let mut head = self.head.load(Ordering::Relaxed);
+        if head == ptr::null_mut() {
             return NonatomicStack { head: ptr::null_mut() };
         }
 
-        let head = self.head.swap(ptr::null_mut(), Ordering::Relaxed);
-        NonatomicStack { head: head }
+        let mut counter = 0;
+        loop {
+            match self.head.compare_exchange_weak(head,
+                                                  ptr::null_mut(),
+                                                  Ordering::Relaxed,
+                                                  Ordering::Relaxed) {
+                Err(newhead) => {
+                    head = newhead;
+                    if head == ptr::null_mut() {
+                        return NonatomicStack { head: ptr::null_mut() };
+                    }
+                }
+                Ok(_) => return NonatomicStack { head: head },
+            }
+            thread::yield_now();
+
+            let exp;
+            if counter > MAX_EXP {
+                exp = 1 << MAX_EXP;
+            } else {
+                exp = 1 << counter;
+                counter += 1;
+            }
+            thread::yield_now();
+
+            let spins = backoff::thread_num(1, exp);
+            for _ in 0..spins % UNROLL {
+                backoff::pause();
+            }
+
+            for _ in 0..spins / UNROLL {
+                for _ in 0..UNROLL {
+                    backoff::pause();
+                }
+            }
+        }
     }
 }
 
