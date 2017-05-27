@@ -67,14 +67,18 @@ impl Stack {
     }
 
     pub unsafe fn push(&self, node: *mut Node) {
-        (*node).next.store(bad_node_ptr(), Ordering::Release);
+        (*node).next.store(bad_node_ptr(), Ordering::Relaxed);
+
+        atomic::fence(Ordering::Release);
 
         // This need not have an acquire ordering.  In fact if the
         // node storing the head can be reversed behind here it'd be a
         // benefit.
-        let head = self.head.swap(node, Ordering::Release);
+        let head = self.head.swap(node, Ordering::Relaxed);
 
-        (*node).next.store(head, Ordering::Release);
+        (*node).next.store(head, Ordering::Relaxed);
+
+        atomic::fence(Ordering::Release);
     }
 
     pub fn drain(&self) -> NonatomicStack {
