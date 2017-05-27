@@ -48,6 +48,10 @@ impl Queue {
 
         popped = new_outbox.pop();
 
+        // If the new outbox is empty there is no reason to write it
+        if ptr::null_mut() == popped {
+            return ptr::null_mut();
+        }
         *outbox = new_outbox;
 
         return popped;
