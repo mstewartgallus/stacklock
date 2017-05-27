@@ -12,9 +12,7 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 
-use std::mem;
 use std::ptr;
-use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::thread;
 
@@ -27,11 +25,7 @@ const UNROLL: usize = 4;
 
 pub struct Node {
     notifier: Notifier,
-    next: CacheLineAligned<AtomicPtr<Node>>,
-}
-
-fn bad_node_ptr() -> *mut Node {
-    unsafe { mem::transmute(1usize) }
+    next: CacheLineAligned<*mut Node>,
 }
 
 impl Node {
@@ -39,7 +33,7 @@ impl Node {
     pub fn new() -> Node {
         Node {
             notifier: Notifier::new(),
-            next: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())),
+            next: CacheLineAligned::new(ptr::null_mut()),
         }
     }
 
@@ -67,18 +61,39 @@ impl Stack {
     }
 
     pub unsafe fn push(&self, node: *mut Node) {
-        (*node).next.store(bad_node_ptr(), Ordering::Relaxed);
+        let mut head = self.head.load(Ordering::Relaxed);
+        let mut counter = 0;
+        loop {
+            *(*node).next = head;
 
-        atomic::fence(Ordering::Release);
+            match self.head
+                .compare_exchange_weak(head, node, Ordering::Release, Ordering::Relaxed) {
+                Err(newhead) => {
+                    head = newhead;
+                }
+                Ok(_) => break,
+            }
 
-        // This need not have an acquire ordering.  In fact if the
-        // node storing the head can be reversed behind here it'd be a
-        // benefit.
-        let head = self.head.swap(node, Ordering::Relaxed);
+            let exp;
+            if counter > MAX_EXP {
+                exp = 1 << MAX_EXP;
+            } else {
+                exp = 1 << counter;
+                counter += 1;
+            }
+            thread::yield_now();
 
-        (*node).next.store(head, Ordering::Relaxed);
+            let spins = backoff::thread_num(1, exp);
+            for _ in 0..spins % UNROLL {
+                backoff::pause();
+            }
 
-        atomic::fence(Ordering::Release);
+            for _ in 0..spins / UNROLL {
+                for _ in 0..UNROLL {
+                    backoff::pause();
+                }
+            }
+        }
     }
 
     pub fn drain(&self) -> NonatomicStack {
@@ -91,7 +106,7 @@ impl Stack {
         loop {
             match self.head.compare_exchange_weak(head,
                                                   ptr::null_mut(),
-                                                  Ordering::Relaxed,
+                                                  Ordering::Acquire,
                                                   Ordering::Relaxed) {
                 Err(newhead) => {
                     head = newhead;
@@ -101,7 +116,6 @@ impl Stack {
                 }
                 Ok(_) => return NonatomicStack { head: head },
             }
-            thread::yield_now();
 
             let exp;
             if counter > MAX_EXP {
@@ -141,37 +155,8 @@ impl NonatomicStack {
                     break;
                 }
                 let node = old;
-                atomic::fence(Ordering::Acquire);
-
-                let mut counter = 0;
-                loop {
-                    old = (*node).next.load(Ordering::Relaxed);
-                    if old != bad_node_ptr() {
-                        break;
-                    }
-
-                    let exp;
-                    if counter > MAX_EXP {
-                        exp = 1 << MAX_EXP;
-                    } else {
-                        exp = 1 << counter;
-                        counter += 1;
-                    }
-                    thread::yield_now();
-
-                    let spins = backoff::thread_num(1, exp);
-                    for _ in 0..spins % UNROLL {
-                        backoff::pause();
-                    }
-
-                    for _ in 0..spins / UNROLL {
-                        for _ in 0..UNROLL {
-                            backoff::pause();
-                        }
-                    }
-                }
-
-                (*node).next.store(new, Ordering::Relaxed);
+                old = *(*node).next;
+                *(*node).next = new;
                 new = node;
             }
             NonatomicStack { head: new }
@@ -185,7 +170,7 @@ impl NonatomicStack {
                 return ptr::null_mut();
             }
 
-            let next = (*head).next.load(Ordering::Relaxed);
+            let next = *(*head).next;
 
             self.head = next;
 
