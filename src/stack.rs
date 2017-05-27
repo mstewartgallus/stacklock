@@ -25,7 +25,7 @@ const PUSH_UNROLL: usize = 4;
 
 pub struct Node {
     notifier: Notifier,
-    next: CacheLineAligned<AtomicPtr<Node>>,
+    next: CacheLineAligned<*mut Node>,
 }
 
 impl Node {
@@ -33,7 +33,7 @@ impl Node {
     pub fn new() -> Node {
         Node {
             notifier: Notifier::new(),
-            next: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())),
+            next: CacheLineAligned::new(ptr::null_mut()),
         }
     }
 
@@ -60,7 +60,7 @@ impl Stack {
         let mut head = self.head.load(Ordering::Relaxed);
         let mut counter = 0;
         loop {
-            (*node).next.store(head, Ordering::Relaxed);
+            *(*node).next = head;
             match self.head
                 .compare_exchange_weak(head, node, Ordering::Release, Ordering::Relaxed) {
                 Err(newhead) => {
@@ -105,8 +105,8 @@ impl Stack {
                     break;
                 }
                 let node = old;
-                old = (*node).next.load(Ordering::Acquire);
-                (*node).next.store(new, Ordering::Release);
+                old = *(*node).next;
+                *(*node).next = new;
                 new = node;
             }
             Stack { head: CacheLineAligned::new(AtomicPtr::new(new)) }
@@ -120,7 +120,7 @@ impl Stack {
                 return ptr::null_mut();
             }
 
-            let next = (*head).next.load(Ordering::Acquire);
+            let next = *(*head).next;
 
             self.head.store(next, Ordering::Release);
 
