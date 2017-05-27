@@ -22,9 +22,9 @@ use std::thread;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const MAX_EXP: usize = 7;
+const MAX_EXP: usize = 8;
 const YIELD_INTERVAL: usize = 8;
-const LOOPS: usize = 10;
+const LOOPS: usize = 20;
 
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
