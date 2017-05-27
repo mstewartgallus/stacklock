@@ -36,8 +36,17 @@ impl Aba {
         Aba { ptr: AtomicU64::new(0) }
     }
 
+    #[inline(always)]
+    fn from_node(node: *mut Node) -> Aba {
+        Aba { ptr: AtomicU64::new(to_u64(node, 0)) }
+    }
+
     fn load(&self, ordering: Ordering) -> (*mut Node, u32) {
         return from_u64(self.ptr.load(ordering));
+    }
+
+    fn swap(&self, new: (*mut Node, u32), ordering: Ordering) -> (*mut Node, u32) {
+        from_u64(self.ptr.swap(to_u64(new.0, new.1), ordering))
     }
 
     fn compare_exchange_weak(&self,
@@ -137,6 +146,32 @@ impl Stack {
                     backoff::pause();
                 }
             }
+        }
+    }
+
+    pub fn drain(&self) -> Stack {
+        Stack {
+            head: CacheLineAligned::new(Aba::from_node(self.head
+                .swap((ptr::null_mut(), 0), Ordering::AcqRel)
+                .0)),
+        }
+    }
+
+    pub fn reverse(self) -> Stack {
+        unsafe {
+            let p = self.head.load(Ordering::Acquire).0;
+            let mut new = ptr::null_mut();
+            let mut old = p;
+            loop {
+                if ptr::null_mut() == old {
+                    break;
+                }
+                let node = old;
+                old = (*node).next.load(Ordering::Acquire);
+                (*node).next.store(new, Ordering::Release);
+                new = node;
+            }
+            Stack { head: CacheLineAligned::new(Aba::from_node(new)) }
         }
     }
 
