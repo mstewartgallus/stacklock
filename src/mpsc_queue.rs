@@ -37,13 +37,19 @@ impl Queue {
     }
 
     pub unsafe fn dequeue(&self) -> *mut Node {
-        let popped = (*self.outbox.get()).pop();
+        let outbox = &mut *self.outbox.get();
+
+        let mut popped = outbox.pop();
         if popped != ptr::null_mut() {
             return popped;
         }
 
-        *self.outbox.get() = self.inbox.drain().reverse();
+        let mut new_outbox = self.inbox.drain().reverse();
 
-        return (*self.outbox.get()).pop();
+        popped = new_outbox.pop();
+
+        *outbox = new_outbox;
+
+        return popped;
     }
 }
