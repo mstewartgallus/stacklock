@@ -13,9 +13,7 @@
 // permissions and limitations under the License.
 
 use std::ptr;
-use std::mem;
-use std::sync::atomic;
-use std::sync::atomic::{AtomicU64, AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::thread;
 
 use qlock_util::backoff;
@@ -23,62 +21,7 @@ use qlock_util::cacheline::CacheLineAligned;
 use notifier::Notifier;
 
 const MAX_PUSH_EXP: usize = 6;
-const MAX_POP_EXP: usize = 6;
 const PUSH_UNROLL: usize = 4;
-const POP_UNROLL: usize = 4;
-
-struct Aba {
-    ptr: AtomicU64,
-}
-impl Aba {
-    #[inline(always)]
-    fn new() -> Aba {
-        Aba { ptr: AtomicU64::new(0) }
-    }
-
-    #[inline(always)]
-    fn from_node(node: *mut Node) -> Aba {
-        Aba { ptr: AtomicU64::new(to_u64(node, 0)) }
-    }
-
-    fn load(&self, ordering: Ordering) -> (*mut Node, u32) {
-        return from_u64(self.ptr.load(ordering));
-    }
-
-    fn swap(&self, new: (*mut Node, u32), ordering: Ordering) -> (*mut Node, u32) {
-        from_u64(self.ptr.swap(to_u64(new.0, new.1), ordering))
-    }
-
-    fn compare_exchange_weak(&self,
-                             old: (*mut Node, u32),
-                             new: (*mut Node, u32),
-                             success: Ordering,
-                             fail: Ordering)
-                             -> Result<(*mut Node, u32), (*mut Node, u32)> {
-        let old_num = to_u64(old.0, old.1);
-        let new_num = to_u64(new.0, new.1);
-        match self.ptr.compare_exchange_weak(old_num, new_num, success, fail) {
-            Ok(x) => Ok(from_u64(x)),
-            Err(x) => Err(from_u64(x)),
-        }
-    }
-}
-
-fn to_u64(ptr: *mut Node, tag: u32) -> u64 {
-    unsafe {
-        let ptr_val: u64 = mem::transmute(ptr);
-        let tag_val: u64 = (tag & ((1 << 23) - 1)) as u64;
-        return ptr_val << 16 | tag_val;
-    }
-}
-
-fn from_u64(num: u64) -> (*mut Node, u32) {
-    unsafe {
-        let ptr: *mut Node = mem::transmute((num & !((1 << 23) - 1)) >> 16);
-        let tag: u32 = (num & ((1 << 23) - 1)) as u32;
-        return (ptr, tag);
-    }
-}
 
 pub struct Node {
     notifier: Notifier,
@@ -104,24 +47,22 @@ impl Node {
 }
 
 pub struct Stack {
-    head: CacheLineAligned<Aba>,
+    head: CacheLineAligned<AtomicPtr<Node>>,
 }
 
 impl Stack {
     #[inline(always)]
     pub fn new() -> Self {
-        Stack { head: CacheLineAligned::new(Aba::new()) }
+        Stack { head: CacheLineAligned::new(AtomicPtr::new(ptr::null_mut())) }
     }
 
     pub unsafe fn push(&self, node: *mut Node) {
         let mut head = self.head.load(Ordering::Relaxed);
         let mut counter = 0;
         loop {
-            (*node).next.store(head.0, Ordering::Relaxed);
-            match self.head.compare_exchange_weak(head,
-                                                  (node, head.1.wrapping_add(1)),
-                                                  Ordering::Release,
-                                                  Ordering::Relaxed) {
+            (*node).next.store(head, Ordering::Relaxed);
+            match self.head
+                .compare_exchange_weak(head, node, Ordering::Release, Ordering::Relaxed) {
                 Err(newhead) => {
                     head = newhead;
                 }
@@ -150,16 +91,13 @@ impl Stack {
     }
 
     pub fn drain(&self) -> Stack {
-        Stack {
-            head: CacheLineAligned::new(Aba::from_node(self.head
-                .swap((ptr::null_mut(), 0), Ordering::AcqRel)
-                .0)),
-        }
+        let head = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
+        Stack { head: CacheLineAligned::new(AtomicPtr::new(head)) }
     }
 
     pub fn reverse(self) -> Stack {
         unsafe {
-            let p = self.head.load(Ordering::Acquire).0;
+            let p = self.head.load(Ordering::Acquire);
             let mut new = ptr::null_mut();
             let mut old = p;
             loop {
@@ -171,54 +109,22 @@ impl Stack {
                 (*node).next.store(new, Ordering::Release);
                 new = node;
             }
-            Stack { head: CacheLineAligned::new(Aba::from_node(new)) }
+            Stack { head: CacheLineAligned::new(AtomicPtr::new(new)) }
         }
     }
 
-    pub fn pop(&self) -> *mut Node {
+    pub fn pop(&mut self) -> *mut Node {
         unsafe {
-            let mut head = self.head.load(Ordering::Relaxed);
-            if head.0 == ptr::null_mut() {
+            let head = self.head.load(Ordering::Acquire);
+            if head == ptr::null_mut() {
                 return ptr::null_mut();
             }
 
-            let mut counter = 0;
-            loop {
-                atomic::fence(Ordering::Acquire);
-                let next = (*head.0).next.load(Ordering::Relaxed);
-                match self.head
-                    .compare_exchange_weak(head,
-                                           (next, head.1.wrapping_add(1)),
-                                           Ordering::Acquire,
-                                           Ordering::Relaxed) {
-                    Err(newhead) => {
-                        head = newhead;
-                        if head.0 == ptr::null_mut() {
-                            return ptr::null_mut();
-                        }
-                    }
-                    Ok(_) => return head.0,
-                }
-                let exp;
-                if counter > MAX_POP_EXP {
-                    exp = 1 << MAX_POP_EXP;
-                } else {
-                    exp = 1 << counter;
-                    counter += 1;
-                }
-                thread::yield_now();
+            let next = (*head).next.load(Ordering::Acquire);
 
-                let spins = backoff::thread_num(1, exp);
-                for _ in 0..spins % POP_UNROLL {
-                    backoff::pause();
-                }
+            self.head.store(next, Ordering::Release);
 
-                for _ in 0..spins / POP_UNROLL {
-                    for _ in 0..POP_UNROLL {
-                        backoff::pause();
-                    }
-                }
-            }
+            return head;
         }
     }
 }
