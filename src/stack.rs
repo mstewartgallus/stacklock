@@ -95,6 +95,10 @@ impl Stack {
     }
 
     pub fn drain(&self) -> NonatomicStack {
+        if self.head.load(Ordering::Acquire) == ptr::null_mut() {
+            return NonatomicStack { head: ptr::null_mut() };
+        }
+
         let head = self.head.swap(ptr::null_mut(), Ordering::AcqRel);
         NonatomicStack { head: head }
     }
