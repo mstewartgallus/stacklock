@@ -11,50 +11,51 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
+use std::thread;
+
 use std::sync::atomic;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use qlock_util::cacheline::CacheLineAligned;
 
 pub struct RawMutex {
-    locked: CacheLineAligned<AtomicU8>,
+    locked: CacheLineAligned<AtomicBool>,
 }
 
-const UNLOCKED: u8 = 0;
-const LOCKED: u8 = 1;
+const UNLOCKED: bool = false;
+const LOCKED: bool = true;
 
 impl RawMutex {
     #[inline(always)]
     pub fn new() -> Self {
-        RawMutex { locked: CacheLineAligned::new(AtomicU8::new(0)) }
+        RawMutex { locked: CacheLineAligned::new(AtomicBool::new(UNLOCKED)) }
     }
 
     pub fn try_acquire(&self) -> bool {
-        if UNLOCKED == self.locked.load(Ordering::Relaxed) {
-            let mut prev: u8 = LOCKED;
-            unsafe {
-                // xchg implicitly has a lock prefix
-                asm!("xacquire; xchg $0, $1"
-                     : "+r" (prev), "+*m" (&*self.locked)
-                     :
-                     : "memory"
-                     : "volatile", "intel");
-            }
-            if UNLOCKED == prev {
-                atomic::fence(Ordering::Acquire);
-                return true;
-            }
+        let mut lock_state = self.locked.load(Ordering::Relaxed);
+        if LOCKED == lock_state {
+            return false;
         }
-        return false;
+
+        loop {
+            match self.locked
+                .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::Relaxed, Ordering::Relaxed) {
+                Err(newlock_state) => {
+                    lock_state = newlock_state;
+                    if LOCKED == lock_state {
+                        return false;
+                    }
+                }
+                Ok(_) => {
+                    atomic::fence(Ordering::Acquire);
+                    return true;
+                }
+            }
+            thread::yield_now();
+        }
     }
 
     pub fn release(&self) {
-        unsafe {
-            asm!("xrelease; mov byte ptr $0, 0"
-                 : "=*m" (&*self.locked)
-                 :
-                 : "memory"
-                 : "volatile", "intel");
-        }
+        self.locked.store(false, Ordering::Release);
     }
 }
