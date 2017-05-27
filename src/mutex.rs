@@ -11,24 +11,37 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use qlock_util::cacheline::CacheLineAligned;
 
 pub struct RawMutex {
-    locked: CacheLineAligned<AtomicBool>,
+    locked: CacheLineAligned<AtomicU8>,
 }
+
+const UNLOCKED: u8 = 0;
+const LOCKED: u8 = 1;
 
 impl RawMutex {
     #[inline(always)]
     pub fn new() -> Self {
-        RawMutex { locked: CacheLineAligned::new(AtomicBool::new(false)) }
+        RawMutex { locked: CacheLineAligned::new(AtomicU8::new(0)) }
     }
 
     pub fn try_acquire(&self) -> bool {
-        if !self.locked.load(Ordering::Relaxed) {
-            if let Ok(_) = self.locked
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed) {
+        if UNLOCKED == self.locked.load(Ordering::Relaxed) {
+            let mut prev: u8 = LOCKED;
+            unsafe {
+                // xchg implicitly has a lock prefix
+                asm!("xacquire; xchg $0, $1"
+                     : "+r" (prev), "+*m" (&*self.locked)
+                     :
+                     : "memory"
+                     : "volatile", "intel");
+            }
+            if UNLOCKED == prev {
+                atomic::fence(Ordering::Acquire);
                 return true;
             }
         }
@@ -36,6 +49,12 @@ impl RawMutex {
     }
 
     pub fn release(&self) {
-        self.locked.store(false, Ordering::Release);
+        unsafe {
+            asm!("xrelease; mov byte ptr $0, 0"
+                 : "=*m" (&*self.locked)
+                 :
+                 : "memory"
+                 : "volatile", "intel");
+        }
     }
 }
