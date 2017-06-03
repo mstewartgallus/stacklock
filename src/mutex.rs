@@ -11,8 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
-use std::thread;
-
 use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -32,27 +30,17 @@ impl RawMutex {
     }
 
     pub fn try_acquire(&self) -> bool {
-        let mut lock_state = self.locked.load(Ordering::Relaxed);
-        if LOCKED == lock_state {
+        if LOCKED == self.locked.load(Ordering::Relaxed) {
             return false;
         }
 
-        loop {
-            match self.locked
-                .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::Relaxed, Ordering::Relaxed) {
-                Err(newlock_state) => {
-                    lock_state = newlock_state;
-                    if LOCKED == lock_state {
-                        return false;
-                    }
-                }
-                Ok(_) => {
-                    atomic::fence(Ordering::Acquire);
-                    return true;
-                }
-            }
-            thread::yield_now();
+        if self.locked
+            .compare_exchange(UNLOCKED, LOCKED, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok() {
+            atomic::fence(Ordering::Acquire);
+            return true;
         }
+        return false;
     }
 
     pub fn release(&self) {

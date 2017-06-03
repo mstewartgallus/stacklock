@@ -14,8 +14,8 @@
 use std::ptr;
 use std::cell::UnsafeCell;
 
-use stack::{NonatomicStack, Stack};
-pub use stack::Node;
+use drain_stack::{NonatomicStack, Stack};
+pub use drain_stack::Node;
 
 /// Multiple producer, single consumer queue
 pub struct Queue {

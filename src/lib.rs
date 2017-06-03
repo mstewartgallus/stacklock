@@ -24,16 +24,15 @@ extern crate qlock_util;
 
 mod mutex;
 mod stack;
-mod mpsc_queue;
 mod notifier;
 
 use std::ptr;
 
-use mpsc_queue::{Node, Queue};
+use stack::{Node, Stack};
 use mutex::RawMutex;
 
 pub struct QLock {
-    queue: Queue,
+    stack: Stack,
     lock: RawMutex,
 }
 unsafe impl Send for QLock {}
@@ -46,7 +45,7 @@ pub struct QLockGuard<'r> {
 impl QLock {
     pub fn new() -> Self {
         QLock {
-            queue: Queue::new(),
+            stack: Stack::new(),
             lock: RawMutex::new(),
         }
     }
@@ -55,7 +54,7 @@ impl QLock {
         unsafe {
             {
                 let mut node = Node::new();
-                self.queue.enqueue(&mut node);
+                self.stack.push(&mut node);
 
                 self.flush();
 
@@ -69,7 +68,7 @@ impl QLock {
     fn flush(&self) {
         unsafe {
             if self.lock.try_acquire() {
-                let popped = self.queue.dequeue();
+                let popped = self.stack.pop();
                 if popped != ptr::null_mut() {
                     (*popped).signal();
                     return;
@@ -84,7 +83,7 @@ impl QLock {
 impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         unsafe {
-            let popped = self.lock.queue.dequeue();
+            let popped = self.lock.stack.pop();
             if popped != ptr::null_mut() {
                 (*popped).signal();
                 return;

@@ -17,14 +17,11 @@ use libc;
 use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::thread;
 
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const MAX_EXP: usize = 8;
-const YIELD_INTERVAL: usize = 8;
-const LOOPS: usize = 20;
+const LOOPS: usize = 8;
 
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
@@ -80,30 +77,12 @@ impl Notifier {
                     if counter >= LOOPS {
                         break;
                     }
-
-                    if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
-                        thread::yield_now();
-                    }
-
-                    let exp;
-                    if counter > MAX_EXP {
-                        exp = 1 << MAX_EXP;
-                    } else {
-                        exp = 1 << counter;
-                    }
+                    let exp = 1 << counter;
 
                     // Unroll the loop for better performance
                     let spins = backoff::thread_num(1, exp);
-                    let unroll = 16;
-                    for _ in 0..spins % unroll {
-                        backoff::pause();
-                    }
 
-                    for _ in 0..spins / unroll {
-                        for _ in 0..unroll {
-                            backoff::pause();
-                        }
-                    }
+                    backoff::pause_times(spins);
 
                     counter += 1;
                 }

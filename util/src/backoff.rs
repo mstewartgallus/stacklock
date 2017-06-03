@@ -24,6 +24,57 @@ pub fn pause() {
     atomic::hint_core_should_pause();
 }
 
+#[inline(always)]
+pub fn pause_times(spins: usize) {
+    let unroll = 8;
+    // Implement duff's device in Rust
+    'do_0: loop {
+        'do_1: loop {
+            'do_2: loop {
+                'do_3: loop {
+                    'do_4: loop {
+                        'do_5: loop {
+                            'do_6: loop {
+                                match spins % unroll {
+                                    0 => break 'do_0,
+                                    1 => break 'do_1,
+                                    2 => break 'do_2,
+                                    3 => break 'do_3,
+                                    4 => break 'do_4,
+                                    5 => break 'do_5,
+                                    6 => break 'do_6,
+                                    7 => {},
+                                    _ => unreachable!()
+                                }
+                                pause();
+                                break;
+                            }
+                            pause();
+                            break;
+                        }
+                        pause();
+                        break;
+                    }
+                    pause();
+                    break;
+                }
+                pause();
+                break;
+            }
+            pause();
+            break;
+        }
+        pause();
+        break;
+    }
+
+    for _ in 0..spins / unroll {
+        for _ in 0..unroll {
+            pause();
+        }
+    }
+}
+
 thread_local! {
     static RNG: RefCell<XorShiftRng> = RefCell::new(rand::weak_rng());
 }
