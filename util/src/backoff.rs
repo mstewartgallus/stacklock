@@ -16,7 +16,6 @@ use std::cell::RefCell;
 use std::usize;
 use std::sync::atomic;
 
-use rand::{Rng, XorShiftRng};
 use rand;
 
 #[inline(always)]
@@ -89,12 +88,17 @@ pub fn pause_times(spins: usize) {
     }
 }
 
+// Use MMIX RNG
 thread_local! {
-    static RNG: RefCell<XorShiftRng> = RefCell::new(rand::weak_rng());
+    static RNG: RefCell<u64> = RefCell::new(rand::random());
 }
 
 /// A thread random number
 #[inline]
 pub fn thread_num(min: usize, max: usize) -> usize {
-    return RNG.with(|rng| rng.borrow_mut().gen_range(min, max + 1));
+    return (RNG.with(|rng| {
+        let old = *rng.borrow();
+        *rng.borrow_mut() = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        old as usize
+    }) % (max + 1 - min)) + min;
 }
