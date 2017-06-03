@@ -12,12 +12,13 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
-use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::usize;
 use std::sync::atomic;
 
 use rand;
 
+#[inline(always)]
 pub fn yield_now() {
     unsafe {
         syscall!(SCHED_YIELD);
@@ -96,15 +97,15 @@ pub fn pause_times(spins: usize) {
 
 // Use MMIX RNG
 thread_local! {
-    static RNG: RefCell<u64> = RefCell::new(rand::random());
+    static RNG: UnsafeCell<u64> = UnsafeCell::new(rand::random());
 }
 
 /// A thread random number
 #[inline]
 pub fn thread_num(min: usize, max: usize) -> usize {
-    return (RNG.with(|rng| {
-        let old = *rng.borrow();
-        *rng.borrow_mut() = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    return (RNG.with(|rng| unsafe {
+        let old = *rng.get();
+        *rng.get() = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         old as usize
     }) % (max.wrapping_add(1).wrapping_sub(min))).wrapping_add(min);
 }
