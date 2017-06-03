@@ -106,5 +106,5 @@ pub fn thread_num(min: usize, max: usize) -> usize {
         let old = *rng.borrow();
         *rng.borrow_mut() = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         old as usize
-    }) % (max + 1 - min)) + min;
+    }) % (max.wrapping_add(1).wrapping_sub(min))).wrapping_add(min);
 }
