@@ -26,7 +26,13 @@ pub fn pause() {
 
 #[inline(always)]
 pub fn pause_times(spins: usize) {
+    if 0 == spins {
+        return;
+    }
     let unroll = 8;
+    let start_loops = spins % unroll;
+    let outer_loops = spins / unroll;
+
     // Implement duff's device in Rust
     'do_0: loop {
         'do_1: loop {
@@ -35,7 +41,7 @@ pub fn pause_times(spins: usize) {
                     'do_4: loop {
                         'do_5: loop {
                             'do_6: loop {
-                                match spins % unroll {
+                                match start_loops {
                                     0 => break 'do_0,
                                     1 => break 'do_1,
                                     2 => break 'do_2,
@@ -68,7 +74,15 @@ pub fn pause_times(spins: usize) {
         break;
     }
 
-    for _ in 0..spins / unroll {
+    let mut counter = outer_loops;
+    loop {
+        match counter.checked_sub(1) {
+            None => break,
+            Some(newcounter) => {
+                counter = newcounter;
+            }
+        }
+
         for _ in 0..unroll {
             pause();
         }
