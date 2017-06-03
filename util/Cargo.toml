@@ -11,3 +11,4 @@ nightly = []
 
 [dependencies]
 rand = "0.3"
+syscall = "0.2"

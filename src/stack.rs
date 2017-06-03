@@ -14,7 +14,6 @@
 use std::mem;
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::thread;
 
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
@@ -123,9 +122,9 @@ impl Stack {
                 exp = 1 << MAX_EXP;
             } else {
                 exp = 1 << counter;
-                counter += 1;
+                counter = counter.wrapping_add(1);
             }
-            thread::yield_now();
+            backoff::yield_now();
 
             let spins = backoff::thread_num(1, exp);
 
@@ -161,9 +160,9 @@ impl Stack {
                     exp = 1 << MAX_EXP;
                 } else {
                     exp = 1 << counter;
-                    counter += 1;
+                    counter = counter.wrapping_add(1);
                 }
-                thread::yield_now();
+                backoff::yield_now();
 
                 let spins = backoff::thread_num(1, exp);
 

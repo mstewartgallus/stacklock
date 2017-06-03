@@ -21,7 +21,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 
-const LOOPS: usize = 8;
+const YIELD_INTERVAL: usize = 8;
+const MAX_EXP: usize = 8;
+const LOOPS: usize = 20;
 
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
@@ -74,17 +76,26 @@ impl Notifier {
                     if self.triggered.load(Ordering::Relaxed) == TRIGGERED {
                         break 'wait_loop;
                     }
-                    if counter >= LOOPS {
-                        break;
+
+                    let exp;
+                    if counter > MAX_EXP {
+                        exp = 1 << MAX_EXP;
+                    } else {
+                        exp = 1 << counter;
                     }
-                    let exp = 1 << counter;
+                    if YIELD_INTERVAL - 1 == counter % YIELD_INTERVAL {
+                        backoff::yield_now();
+                    }
 
                     // Unroll the loop for better performance
                     let spins = backoff::thread_num(1, exp);
 
                     backoff::pause_times(spins);
 
-                    counter += 1;
+                    counter = counter.wrapping_add(1);
+                    if counter >= LOOPS {
+                        break;
+                    }
                 }
             }
 

@@ -18,6 +18,12 @@ use std::sync::atomic;
 
 use rand;
 
+pub fn yield_now() {
+    unsafe {
+        syscall!(SCHED_YIELD);
+    }
+}
+
 #[inline(always)]
 pub fn pause() {
     atomic::hint_core_should_pause();

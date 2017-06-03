@@ -16,6 +16,10 @@
 #![feature(hint_core_should_pause)]
 #![feature(attr_literals)]
 
+
+#[macro_use]
+extern crate syscall;
+
 extern crate rand;
 
 pub mod backoff;
