@@ -104,8 +104,10 @@ thread_local! {
 #[inline]
 pub fn thread_num(min: usize, max: usize) -> usize {
     return (RNG.with(|rng| unsafe {
-        let old = *rng.get();
-        *rng.get() = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let rng_ref = &mut *rng.get();
+        let old = *rng_ref;
+        let new = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *rng_ref = new;
         old as usize
     }) % (max.wrapping_add(1).wrapping_sub(min))).wrapping_add(min);
 }
