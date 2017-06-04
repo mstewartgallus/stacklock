@@ -13,11 +13,9 @@ use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use std::thread;
-
 use contend::{TestCase, contend};
 
-const MAX_EXP: usize = 7;
+const MAX_EXP: usize = 9;
 
 struct Hle {
     val: CacheLineAligned<AtomicU32>,
@@ -35,33 +33,34 @@ impl Hle {
 
     #[inline(never)]
     fn lock<'r>(&'r self) -> HleGuard<'r> {
-        let mut prev: u32 = 1;
-        unsafe {
-            // xchg implicitly has a lock prefix
-            asm!("xacquire; xchg $0, $1"
-                 : "+r" (prev), "+*m" (&*self.val)
-                 :
-                 : "memory"
-                 : "volatile", "intel");
-        }
-        if 0 == prev {
-            atomic::fence(Ordering::Acquire);
-            return HleGuard { lock: self };
+        if self.val.load(Ordering::Relaxed) == 0 {
+            let mut prev: u32 = 1;
+            unsafe {
+                // xchg implicitly has a lock prefix
+                asm!("xacquire; xchg $0, $1"
+                     : "+r" (prev), "+*m" (&*self.val)
+                     :
+                     : "memory"
+                     : "volatile", "intel");
+            }
+            if 0 == prev {
+                atomic::fence(Ordering::Acquire);
+                return HleGuard { lock: self };
+            }
         }
 
         let mut counter = 0;
         loop {
-            thread::yield_now();
+            backoff::yield_now();
             let exp;
             if counter > MAX_EXP {
                 exp = 1 << MAX_EXP;
             } else {
                 exp = 1 << counter;
-                counter += 1;
+                counter = counter.wrapping_add(1);
             }
-            for _ in 0..backoff::thread_num(1, exp) {
-                backoff::pause();
-            }
+
+            backoff::pause_times(backoff::thread_num(1, exp));
 
             if self.val.load(Ordering::Relaxed) == 0 {
                 let mut prev: u32 = 1;

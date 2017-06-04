@@ -15,13 +15,12 @@ use qlock_util::backoff;
 use std::mem;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::thread;
 
 use contend::{TestCase, contend};
 
 const NUM_LOOPS: usize = 30;
 const MAX_EXP: usize = 9;
-const YIELD_INTERVAL: usize = 4;
+const YIELD_INTERVAL: usize = 8;
 
 const FUTEX_WAIT_BITSET_PRIVATE: usize = 9 | 128;
 const FUTEX_WAKE_BITSET_PRIVATE: usize = 10 | 128;
@@ -65,7 +64,7 @@ impl Ticket {
                     break;
                 }
                 if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
-                    thread::yield_now();
+                    backoff::yield_now();
                 }
                 let exp;
                 if counter > MAX_EXP {
@@ -73,10 +72,8 @@ impl Ticket {
                 } else {
                     exp = 1 << counter;
                 }
-                for _ in 0..backoff::thread_num(1, exp) {
-                    backoff::pause();
-                }
-                counter += 1;
+                backoff::pause_times(backoff::thread_num(1, exp));
+                counter = counter.wrapping_add(1);
             }
 
             let num = my_ticket % 32;
@@ -99,7 +96,7 @@ impl<'r> Drop for TicketGuard<'r> {
     #[inline(never)]
     fn drop(&mut self) {
         self.lock.low.fetch_add(1, Ordering::Release);
-        let num = (self.ticket + 1) % 32;
+        let num = (self.ticket.wrapping_add(1)) % 32;
 
         let bitset = 1u32 << num;
 

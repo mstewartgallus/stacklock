@@ -35,7 +35,7 @@ pub fn contend<T: TestCase + 'static>(b: &mut Bencher, numthreads: usize) {
                     break;
                 }
 
-                T::do_stuff_with_value(&lock_ref, 800);
+                T::do_stuff_with_value(&lock_ref, 2000);
 
                 done_ref.wait();
             }

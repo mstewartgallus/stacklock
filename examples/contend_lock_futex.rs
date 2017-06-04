@@ -18,7 +18,6 @@ use std::mem;
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::thread;
 
 use contend::{TestCase, contend};
 
@@ -85,7 +84,7 @@ impl Futex {
                         counter = newcounter;
                     }
                 }
-                thread::yield_now();
+                backoff::yield_now();
             }
 
             unsafe {
