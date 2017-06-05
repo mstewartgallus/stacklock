@@ -12,7 +12,6 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 //
-use std::cell::UnsafeCell;
 use std::usize;
 use std::sync::atomic;
 
@@ -95,19 +94,30 @@ pub fn pause_times(spins: usize) {
     }
 }
 
+struct Rng {
+    init: bool,
+    state: u64
+}
+
 // Use MMIX RNG
-thread_local! {
-    static RNG: UnsafeCell<u64> = UnsafeCell::new(rand::random());
+#[thread_local]
+static mut RNG: Rng = Rng { init: false, state: 0 };
+
+#[cold]
+fn init() -> u64 {
+    rand::random()
 }
 
 /// A thread random number
 #[inline]
 pub fn thread_num(min: usize, max: usize) -> usize {
-    return (RNG.with(|rng| unsafe {
-        let rng_ref = &mut *rng.get();
-        let old = *rng_ref;
+    unsafe {
+        if !RNG.init {
+            RNG.state = init()
+        }
+        let old = RNG.state;
         let new = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        *rng_ref = new;
-        old as usize
-    }) % (max.wrapping_add(1).wrapping_sub(min))).wrapping_add(min);
+        RNG.state = new;
+        return ((old as usize) % (max.wrapping_add(1).wrapping_sub(min))).wrapping_add(min);
+    }
 }
