@@ -12,20 +12,29 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 use std::mem;
-use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use std::ptr;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 use notifier::Notifier;
+
+static mut DUMMY_NODE: Node = Node::new_uninit();
+
+#[inline]
+pub fn dummy_node() -> *mut Node {
+    unsafe {
+        return &mut DUMMY_NODE;
+    }
+}
 
 struct AtomicAba {
     ptr: AtomicU64,
 }
 impl AtomicAba {
     #[inline(always)]
-    fn new() -> Self {
-        AtomicAba { ptr: AtomicU64::new(0) }
+    fn new(ptr: *mut Node) -> Self {
+        AtomicAba { ptr: AtomicU64::new(to_u64(ptr, 0)) }
     }
 
     fn load(&self, ordering: Ordering) -> (*mut Node, u32) {
@@ -73,6 +82,13 @@ impl Node {
     pub fn new() -> Node {
         Node {
             notifier: Notifier::new(),
+            next: CacheLineAligned::new(dummy_node()),
+        }
+    }
+
+    pub const fn new_uninit() -> Node {
+        Node {
+            notifier: Notifier::new(),
             next: CacheLineAligned::new(ptr::null_mut()),
         }
     }
@@ -93,7 +109,7 @@ pub struct Stack {
 impl Stack {
     #[inline(always)]
     pub fn new() -> Self {
-        Stack { head: CacheLineAligned::new(AtomicAba::new()) }
+        Stack { head: CacheLineAligned::new(AtomicAba::new(dummy_node())) }
     }
 
     pub unsafe fn push(&self, node: *mut Node) {
@@ -135,21 +151,26 @@ impl Stack {
     pub fn pop(&self) -> *mut Node {
         unsafe {
             let mut head = self.head.load(Ordering::Relaxed);
-            if head.0 == ptr::null_mut() {
-                return ptr::null_mut();
+
+            let mut next = *(*head.0).next;
+            let mut new = (next, head.1.wrapping_add(1));
+
+            if head.0 == dummy_node() {
+                return dummy_node();
             }
 
             let mut counter = 0;
             loop {
-                let next = *(*head.0).next;
-                let new = (next, head.1.wrapping_add(1));
-
                 match self.head
                     .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
                     Err(newhead) => {
                         head = newhead;
-                        if head.0 == ptr::null_mut() {
-                            return ptr::null_mut();
+
+                        next = *(*head.0).next;
+                        new = (next, head.1.wrapping_add(1));
+
+                        if head.0 == dummy_node() {
+                            return dummy_node();
                         }
                     }
                     Ok(_) => break,

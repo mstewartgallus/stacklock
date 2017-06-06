@@ -14,6 +14,7 @@
 //
 #![feature(asm)]
 #![feature(integer_atomics)]
+#![feature(const_fn)]
 
 #[macro_use]
 extern crate syscall;
@@ -26,9 +27,8 @@ mod mutex;
 mod stack;
 mod notifier;
 
-use std::ptr;
 
-use stack::{Node, Stack};
+use stack::{Node, Stack, dummy_node};
 use mutex::RawMutex;
 
 pub struct QLock {
@@ -69,7 +69,7 @@ impl QLock {
         unsafe {
             if self.lock.try_acquire() {
                 let popped = self.stack.pop();
-                if popped != ptr::null_mut() {
+                if popped != dummy_node() {
                     (*popped).signal();
                     return;
                 }
@@ -84,7 +84,7 @@ impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         unsafe {
             let popped = self.lock.stack.pop();
-            if popped != ptr::null_mut() {
+            if popped != dummy_node() {
                 (*popped).signal();
                 return;
             }

@@ -16,6 +16,7 @@
 #![feature(hint_core_should_pause)]
 #![feature(attr_literals)]
 #![feature(thread_local)]
+#![feature(const_fn)]
 
 #[macro_use]
 extern crate syscall;

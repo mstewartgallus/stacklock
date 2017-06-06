@@ -21,7 +21,7 @@ pub struct CacheLineAligned<T> {
 
 impl<T> CacheLineAligned<T> {
     #[inline]
-    pub fn new(x: T) -> Self {
+    pub const fn new(x: T) -> Self {
         CacheLineAligned {
             value: x,
         }

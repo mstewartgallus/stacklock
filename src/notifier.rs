@@ -51,7 +51,7 @@ const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
 impl Notifier {
     #[inline(always)]
-    pub fn new() -> Notifier {
+    pub const fn new() -> Notifier {
         Notifier {
             triggered: CacheLineAligned::new(AtomicU32::new(NOT_TRIGGERED)),
             spinning: CacheLineAligned::new(AtomicBool::new(SPINNING)),
