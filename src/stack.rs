@@ -28,6 +28,26 @@ pub fn dummy_node() -> *mut Node {
     }
 }
 
+#[derive(Copy, Clone)]
+struct Aba {
+    ptr: u64,
+}
+impl Aba {
+    fn new(ptr: *mut Node, tag: u32) -> Self {
+        Aba { ptr: to_u64(ptr, tag) }
+    }
+    fn ptr(&self) -> *mut Node {
+        from_u64(self.ptr).0
+    }
+    fn tag(&self) -> u32 {
+        from_u64(self.ptr).1
+    }
+}
+impl PartialEq for Aba {
+    fn eq(&self, other: &Aba) -> bool {
+        self.ptr == other.ptr
+    }
+}
 struct AtomicAba {
     ptr: AtomicU64,
 }
@@ -37,20 +57,20 @@ impl AtomicAba {
         AtomicAba { ptr: AtomicU64::new(to_u64(ptr, 0)) }
     }
 
-    fn load(&self, ordering: Ordering) -> (*mut Node, u32) {
-        from_u64(self.ptr.load(ordering))
+    fn load(&self, ordering: Ordering) -> Aba {
+        Aba { ptr: self.ptr.load(ordering) }
     }
 
     fn compare_exchange_weak(&self,
-                             old: (*mut Node, u32),
-                             new: (*mut Node, u32),
+                             old: Aba,
+                             new: Aba,
                              success: Ordering,
                              fail: Ordering)
-                             -> Result<(*mut Node, u32), (*mut Node, u32)> {
+                             -> Result<Aba, Aba> {
         match self.ptr
-            .compare_exchange_weak(to_u64(old.0, old.1), to_u64(new.0, new.1), success, fail) {
-            Err(x) => Err(from_u64(x)),
-            Ok(x) => Ok(from_u64(x)),
+            .compare_exchange_weak(old.ptr, new.ptr, success, fail) {
+            Err(x) => Err(Aba { ptr: x }),
+            Ok(x) => Ok(Aba { ptr: x }),
         }
     }
 }
@@ -116,9 +136,9 @@ impl Stack {
         let mut head = self.head.load(Ordering::Relaxed);
         let mut counter = 0;
         loop {
-            let new = (node, head.1.wrapping_add(1));
+            let new = Aba::new(node, head.tag().wrapping_add(1));
 
-            *(*node).next = head.0;
+            *(*node).next = head.ptr();
 
             let newhead = self.head.load(Ordering::Relaxed);
             if newhead != head {
@@ -152,28 +172,40 @@ impl Stack {
         unsafe {
             let mut head = self.head.load(Ordering::Relaxed);
 
-            let mut next = *(*head.0).next;
-            let mut new = (next, head.1.wrapping_add(1));
+            let mut next = *(*head.ptr()).next;
+            let mut new = Aba::new(next, head.tag().wrapping_add(1));
 
-            if head.0 == dummy_node() {
+            if head.ptr() == dummy_node() {
                 return dummy_node();
             }
 
             let mut counter = 0;
             loop {
-                match self.head
-                    .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
-                    Err(newhead) => {
-                        head = newhead;
+                let maybe_head = self.head.load(Ordering::Relaxed);
+                if maybe_head != head {
+                    head = maybe_head;
 
-                        next = *(*head.0).next;
-                        new = (next, head.1.wrapping_add(1));
+                    next = *(*head.ptr()).next;
+                    new = Aba::new(next, head.tag().wrapping_add(1));
 
-                        if head.0 == dummy_node() {
-                            return dummy_node();
-                        }
+                    if head.ptr() == dummy_node() {
+                        return dummy_node();
                     }
-                    Ok(_) => break,
+                } else {
+                    match self.head
+                        .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
+                        Err(newhead) => {
+                            head = newhead;
+
+                            next = *(*head.ptr()).next;
+                            new = Aba::new(next, head.tag().wrapping_add(1));
+
+                            if head.ptr() == dummy_node() {
+                                return dummy_node();
+                            }
+                        }
+                        Ok(_) => break,
+                    }
                 }
 
                 let exp;
@@ -189,7 +221,7 @@ impl Stack {
 
                 backoff::pause_times(spins);
             }
-            return head.0;
+            return head.ptr();
         }
     }
 }
