@@ -95,29 +95,27 @@ pub fn pause_times(spins: usize) {
 }
 
 struct Rng {
-    do_init: fn(&mut Rng),
+    init: bool,
     state: u64
-}
-
-fn dont_init(_rng: &mut Rng) {
-}
-
-#[cold]
-fn do_init(rng: &mut Rng) {
-    rng.do_init = dont_init;
-    rng.state = rand::random();
 }
 
 // Use MMIX RNG
 #[thread_local]
-static mut RNG: Rng = Rng { do_init: do_init, state: 0 };
+static mut RNG: Rng = Rng { init: false, state: 0 };
+
+#[cold]
+fn init() -> u64 {
+    rand::random()
+}
 
 /// A thread random number
 #[inline]
 pub fn thread_num(min: usize, max: usize) -> usize {
     unsafe {
-        let do_init = RNG.do_init;
-        do_init(&mut RNG);
+        if !RNG.init {
+            RNG.init = true;
+            RNG.state = init();
+        }
         let old = RNG.state;
         let new = old.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         RNG.state = new;
