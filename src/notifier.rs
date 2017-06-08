@@ -14,6 +14,7 @@
 //
 use libc;
 
+use std::cmp;
 use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -77,18 +78,13 @@ impl Notifier {
                         break 'wait_loop;
                     }
 
-                    let exp;
-                    if counter > MAX_EXP {
-                        exp = 1 << MAX_EXP;
-                    } else {
-                        exp = 1 << counter;
-                    }
+                    let exp = cmp::min(counter, MAX_EXP);
                     if YIELD_INTERVAL - 1 == counter % YIELD_INTERVAL {
                         backoff::yield_now();
                     }
 
                     // Unroll the loop for better performance
-                    let spins = backoff::thread_num(1, exp);
+                    let spins = backoff::thread_num(1, 1 << exp);
 
                     backoff::pause_times(spins);
 

@@ -11,10 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
+use std::cmp;
 use std::mem;
+use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use std::ptr;
 use qlock_util::backoff;
 use qlock_util::cacheline::CacheLineAligned;
 use notifier::Notifier;
@@ -150,16 +151,13 @@ impl Stack {
                 Ok(_) => break,
             }
 
-            let exp;
-            if counter > MAX_EXP {
-                exp = 1 << MAX_EXP;
-            } else {
-                exp = 1 << counter;
-                counter = counter.wrapping_add(1);
-            }
             backoff::yield_now();
 
-            let spins = backoff::thread_num(1, exp);
+            let exp = cmp::min(counter, MAX_EXP);
+            if counter < MAX_EXP {
+                counter = counter.wrapping_add(1);
+            }
+            let spins = backoff::thread_num(1, 1 << exp);
 
             backoff::pause_times(spins);
         }
@@ -203,16 +201,14 @@ impl Stack {
                     Ok(_) => break,
                 }
 
-                let exp;
-                if counter > MAX_EXP {
-                    exp = 1 << MAX_EXP;
-                } else {
-                    exp = 1 << counter;
-                    counter = counter.wrapping_add(1);
-                }
                 backoff::yield_now();
 
-                let spins = backoff::thread_num(1, exp);
+
+                let exp = cmp::min(counter, MAX_EXP);
+                if counter < MAX_EXP {
+                    counter = counter.wrapping_add(1);
+                }
+                let spins = backoff::thread_num(1, 1 << exp);
 
                 backoff::pause_times(spins);
             }

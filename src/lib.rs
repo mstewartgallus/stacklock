@@ -27,9 +27,14 @@ mod mutex;
 mod stack;
 mod notifier;
 
+use std::cmp;
+
 use qlock_util::backoff;
 use stack::{Node, Stack, dummy_node};
 use mutex::RawMutex;
+
+const MAX_EXP: usize = 8;
+const LOOPS: usize = 8;
 
 pub struct QLock {
     stack: Stack,
@@ -79,13 +84,14 @@ impl QLock {
             if self.lock.try_acquire() {
                 return true;
             }
-            if counter > 8 {
+            if counter > LOOPS {
                 return false;
             }
             counter = counter.wrapping_add(1);
 
             backoff::yield_now();
-            let spins = backoff::thread_num(1, 1 << counter);
+            let exp = cmp::min(counter, MAX_EXP);
+            let spins = backoff::thread_num(1, 1 << exp);
             backoff::pause_times(spins);
         }
     }
