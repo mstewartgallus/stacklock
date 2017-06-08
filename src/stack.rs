@@ -137,8 +137,12 @@ impl Stack {
 
         let mut counter = 0;
         loop {
+            {
+                let node_ref = &mut *node;
+                *node_ref.next = head.ptr();
+            }
+
             let new = Aba::new(node, head.tag().wrapping_add(1));
-            *(*node).next = head.ptr();
 
             match self.head
                 .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
@@ -166,36 +170,25 @@ impl Stack {
     pub fn pop(&self) -> *mut Node {
         unsafe {
             let mut head = self.head.load(Ordering::Relaxed);
-            let mut next;
-            let mut new;
-
-            {
-                let head_ptr = head.ptr();
-
-                next = *(*head_ptr).next;
-                new = Aba::new(next, head.tag().wrapping_add(1));
-
-                if head_ptr == dummy_node() {
-                    return dummy_node();
-                }
+            if head.ptr() == dummy_node() {
+                return dummy_node();
             }
 
             let mut counter = 0;
             loop {
+                let next;
+                {
+                    let head_ref = &mut *head.ptr();
+                    next = *head_ref.next;
+                }
+                let new = Aba::new(next, head.tag().wrapping_add(1));
+
                 match self.head
                     .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
                     Err(newhead) => {
                         head = newhead;
-
-                        {
-                            let head_ptr = head.ptr();
-
-                            next = *(*head_ptr).next;
-                            new = Aba::new(next, head.tag().wrapping_add(1));
-
-                            if head_ptr == dummy_node() {
-                                return dummy_node();
-                            }
+                        if head.ptr() == dummy_node() {
+                            return dummy_node();
                         }
                     }
                     Ok(_) => break,

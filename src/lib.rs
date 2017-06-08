@@ -56,26 +56,30 @@ impl QLock {
     }
 
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
-        unsafe {
-            if self.attempt_acquire() {
-                let popped = self.stack.pop();
-                if popped == dummy_node() {
-                    return QLockGuard { lock: self };
-                }
-                (*popped).signal();
+        if self.attempt_acquire() {
+            let popped = self.stack.pop();
+            if popped == dummy_node() {
+                return QLockGuard { lock: self };
             }
-
-            {
-                let mut node = Node::new();
-                self.stack.push(&mut node);
-
-                self.flush();
-
-                node.wait();
+            unsafe {
+                let pop_ref = &mut *popped;
+                pop_ref.signal();
             }
-
-            return QLockGuard { lock: self };
         }
+
+        {
+            let mut node = Node::new();
+
+            unsafe {
+                self.stack.push(&mut node);
+            }
+
+            self.flush();
+
+            node.wait();
+        }
+
+        return QLockGuard { lock: self };
     }
 
     fn attempt_acquire(&self) -> bool {
@@ -97,28 +101,30 @@ impl QLock {
     }
 
     fn flush(&self) {
-        unsafe {
-            if self.lock.try_acquire() {
-                let popped = self.stack.pop();
-                if popped != dummy_node() {
-                    (*popped).signal();
-                    return;
+        if self.lock.try_acquire() {
+            let popped = self.stack.pop();
+            if popped != dummy_node() {
+                unsafe {
+                    let pop_ref = &mut *popped;
+                    pop_ref.signal();
                 }
-
-                self.lock.release();
+                return;
             }
+
+            self.lock.release();
         }
     }
 }
 
 impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
-        unsafe {
-            let popped = self.lock.stack.pop();
-            if popped != dummy_node() {
-                (*popped).signal();
-                return;
+        let popped = self.lock.stack.pop();
+        if popped != dummy_node() {
+            unsafe {
+                let pop_ref = &mut *popped;
+                pop_ref.signal();
             }
+            return;
         }
 
         self.lock.lock.release();
