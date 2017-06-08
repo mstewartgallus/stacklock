@@ -53,7 +53,11 @@ impl QLock {
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
         unsafe {
             if self.attempt_acquire() {
-                return QLockGuard { lock: self };
+                let popped = self.stack.pop();
+                if popped == dummy_node() {
+                    return QLockGuard { lock: self };
+                }
+                (*popped).signal();
             }
 
             {
@@ -81,7 +85,6 @@ impl QLock {
             counter = counter.wrapping_add(1);
 
             backoff::yield_now();
-
             let spins = backoff::thread_num(1, 1 << counter);
             backoff::pause_times(spins);
         }
