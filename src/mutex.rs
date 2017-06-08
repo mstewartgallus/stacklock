@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
-use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use qlock_util::cacheline::CacheLineAligned;
@@ -30,14 +29,14 @@ impl RawMutex {
     }
 
     pub fn try_acquire(&self) -> bool {
+        // Test and test and set optimization
         if LOCKED == self.locked.load(Ordering::Relaxed) {
             return false;
         }
 
         if self.locked
-            .compare_exchange(UNLOCKED, LOCKED, Ordering::Relaxed, Ordering::Relaxed)
+            .compare_exchange(UNLOCKED, LOCKED, Ordering::Acquire, Ordering::Relaxed)
             .is_ok() {
-            atomic::fence(Ordering::Acquire);
             return true;
         }
         return false;

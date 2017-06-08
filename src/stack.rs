@@ -77,6 +77,11 @@ impl AtomicAba {
                              success: Ordering,
                              fail: Ordering)
                              -> Result<Aba, Aba> {
+        // Test and test and set optimization
+        let dblcheck = self.ptr.load(fail);
+        if dblcheck != old.ptr {
+            return Err(Aba { ptr: dblcheck });
+        }
         match self.ptr
             .compare_exchange_weak(old.ptr, new.ptr, success, fail) {
             Err(x) => Err(Aba { ptr: x }),
@@ -129,23 +134,20 @@ impl Stack {
 
     pub unsafe fn push(&self, node: *mut Node) {
         let mut head = self.head.load(Ordering::Relaxed);
+
+        let mut new = Aba::new(node, head.tag().wrapping_add(1));
+        *(*node).next = head.ptr();
+
         let mut counter = 0;
         loop {
-            let new = Aba::new(node, head.tag().wrapping_add(1));
-
-            *(*node).next = head.ptr();
-
-            let newhead = self.head.load(Ordering::Relaxed);
-            if newhead != head {
-                head = newhead;
-            } else {
-                match self.head
-                    .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
-                    Err(newhead) => {
-                        head = newhead;
-                    }
-                    Ok(_) => break,
+            match self.head
+                .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
+                Err(newhead) => {
+                    head = newhead;
+                    new = Aba::new(node, head.tag().wrapping_add(1));
+                    *(*node).next = head.ptr();
                 }
+                Ok(_) => break,
             }
 
             let exp;
@@ -182,39 +184,23 @@ impl Stack {
 
             let mut counter = 0;
             loop {
-                let maybe_head = self.head.load(Ordering::Relaxed);
-                if maybe_head != head {
-                    head = maybe_head;
+                match self.head
+                    .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
+                    Err(newhead) => {
+                        head = newhead;
 
-                    {
-                        let head_ptr = head.ptr();
+                        {
+                            let head_ptr = head.ptr();
 
-                        next = *(*head_ptr).next;
-                        new = Aba::new(next, head.tag().wrapping_add(1));
+                            next = *(*head_ptr).next;
+                            new = Aba::new(next, head.tag().wrapping_add(1));
 
-                        if head_ptr == dummy_node() {
-                            return dummy_node();
-                        }
-                    }
-                } else {
-                    match self.head
-                        .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
-                        Err(newhead) => {
-                            head = newhead;
-
-                            {
-                                let head_ptr = head.ptr();
-
-                                next = *(*head_ptr).next;
-                                new = Aba::new(next, head.tag().wrapping_add(1));
-
-                                if head_ptr == dummy_node() {
-                                    return dummy_node();
-                                }
+                            if head_ptr == dummy_node() {
+                                return dummy_node();
                             }
                         }
-                        Ok(_) => break,
                     }
+                    Ok(_) => break,
                 }
 
                 let exp;
