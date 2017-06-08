@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
-use std::cmp;
 use std::mem;
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -79,15 +78,15 @@ impl AtomicAba {
                              fail: Ordering)
                              -> Result<Aba, Aba> {
         // Test and test and set optimization
-        let dblcheck = self.ptr.load(fail);
-        if dblcheck != old.ptr {
-            return Err(Aba { ptr: dblcheck });
+        let mut dblcheck = self.ptr.load(fail);
+        if dblcheck == old.ptr {
+            match self.ptr
+                .compare_exchange_weak(old.ptr, new.ptr, success, fail) {
+                Err(x) => dblcheck = x,
+                Ok(x) => return Ok(Aba { ptr: x }),
+            }
         }
-        match self.ptr
-            .compare_exchange_weak(old.ptr, new.ptr, success, fail) {
-            Err(x) => Err(Aba { ptr: x }),
-            Ok(x) => Ok(Aba { ptr: x }),
-        }
+        return Err(Aba { ptr: dblcheck });
     }
 }
 
@@ -136,28 +135,29 @@ impl Stack {
     pub unsafe fn push(&self, node: *mut Node) {
         let mut head = self.head.load(Ordering::Relaxed);
 
-        let mut new = Aba::new(node, head.tag().wrapping_add(1));
-        *(*node).next = head.ptr();
-
         let mut counter = 0;
         loop {
+            let new = Aba::new(node, head.tag().wrapping_add(1));
+            *(*node).next = head.ptr();
+
             match self.head
                 .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
                 Err(newhead) => {
                     head = newhead;
-                    new = Aba::new(node, head.tag().wrapping_add(1));
-                    *(*node).next = head.ptr();
                 }
                 Ok(_) => break,
             }
 
             backoff::yield_now();
 
-            let exp = cmp::min(counter, MAX_EXP);
-            if counter < MAX_EXP {
+            let exp = if counter < MAX_EXP {
+                let old = counter;
                 counter = counter.wrapping_add(1);
-            }
-            let spins = backoff::thread_num(1, 1 << exp);
+                1 << old
+            } else {
+                1 << MAX_EXP
+            };
+            let spins = backoff::thread_num(1, exp);
 
             backoff::pause_times(spins);
         }
@@ -203,12 +203,14 @@ impl Stack {
 
                 backoff::yield_now();
 
-
-                let exp = cmp::min(counter, MAX_EXP);
-                if counter < MAX_EXP {
+                let exp = if counter < MAX_EXP {
+                    let old = counter;
                     counter = counter.wrapping_add(1);
-                }
-                let spins = backoff::thread_num(1, 1 << exp);
+                    1 << old
+                } else {
+                    1 << MAX_EXP
+                };
+                let spins = backoff::thread_num(1, exp);
 
                 backoff::pause_times(spins);
             }

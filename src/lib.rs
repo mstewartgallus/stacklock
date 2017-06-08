@@ -90,8 +90,8 @@ impl QLock {
             counter = counter.wrapping_add(1);
 
             backoff::yield_now();
-            let exp = cmp::min(counter, MAX_EXP);
-            let spins = backoff::thread_num(1, 1 << exp);
+            let exp = cmp::min(1 << counter, 1 << MAX_EXP);
+            let spins = backoff::thread_num(1, exp);
             backoff::pause_times(spins);
         }
     }

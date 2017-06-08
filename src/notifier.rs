@@ -60,8 +60,6 @@ impl Notifier {
     }
 
     pub fn wait(&self) {
-        atomic::fence(Ordering::Release);
-
         'wait_loop: loop {
             // The first load has a different branch probability, so
             // help the predictor
@@ -78,13 +76,13 @@ impl Notifier {
                         break 'wait_loop;
                     }
 
-                    let exp = cmp::min(counter, MAX_EXP);
+                    let exp = cmp::min(1 << counter, 1 << MAX_EXP);
                     if YIELD_INTERVAL - 1 == counter % YIELD_INTERVAL {
                         backoff::yield_now();
                     }
 
                     // Unroll the loop for better performance
-                    let spins = backoff::thread_num(1, 1 << exp);
+                    let spins = backoff::thread_num(1, exp);
 
                     backoff::pause_times(spins);
 
