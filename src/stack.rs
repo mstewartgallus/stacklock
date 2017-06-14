@@ -13,6 +13,7 @@
 // permissions and limitations under the License.
 use std::mem;
 use std::ptr;
+use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use qlock_util::backoff;
@@ -176,6 +177,7 @@ impl Stack {
 
             let mut counter = 0;
             loop {
+                atomic::fence(Ordering::Acquire);
                 let next;
                 {
                     let head_ref = &mut *head.ptr();
@@ -184,7 +186,7 @@ impl Stack {
                 let new = Aba::new(next, head.tag().wrapping_add(1));
 
                 match self.head
-                    .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
+                    .compare_exchange_weak(head, new, Ordering::AcqRel, Ordering::Relaxed) {
                     Err(newhead) => {
                         head = newhead;
                         if head.ptr() == dummy_node() {
