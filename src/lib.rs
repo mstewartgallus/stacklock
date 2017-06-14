@@ -27,14 +27,8 @@ mod mutex;
 mod stack;
 mod notifier;
 
-use std::cmp;
-
-use qlock_util::backoff;
 use stack::{Node, Stack, dummy_node};
 use mutex::RawMutex;
-
-const MAX_EXP: usize = 8;
-const LOOPS: usize = 8;
 
 pub struct QLock {
     stack: Stack,
@@ -56,17 +50,6 @@ impl QLock {
     }
 
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
-        if self.attempt_acquire() {
-            let popped = self.stack.pop();
-            if popped == dummy_node() {
-                return QLockGuard { lock: self };
-            }
-            unsafe {
-                let pop_ref = &mut *popped;
-                pop_ref.signal();
-            }
-        }
-
         {
             let mut node = Node::new();
 
@@ -80,24 +63,6 @@ impl QLock {
         }
 
         return QLockGuard { lock: self };
-    }
-
-    fn attempt_acquire(&self) -> bool {
-        let mut counter = 0usize;
-        loop {
-            if self.lock.try_acquire() {
-                return true;
-            }
-            if counter > LOOPS {
-                return false;
-            }
-            counter = counter.wrapping_add(1);
-
-            backoff::yield_now();
-            let exp = cmp::min(1 << counter, 1 << MAX_EXP);
-            let spins = backoff::thread_num(1, exp);
-            backoff::pause_times(spins);
-        }
     }
 
     fn flush(&self) {
