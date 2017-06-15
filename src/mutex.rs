@@ -35,7 +35,7 @@ impl RawMutex {
         }
 
         if self.locked
-            .compare_exchange(UNLOCKED, LOCKED, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok() {
             return true;
         }

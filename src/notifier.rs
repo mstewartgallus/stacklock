@@ -115,11 +115,11 @@ impl Notifier {
 
             self.spinning.store(SPINNING, Ordering::Release);
         }
-        atomic::fence(Ordering::Acquire);
+        atomic::fence(Ordering::SeqCst);
     }
 
     pub fn signal(&self) {
-        self.triggered.store(TRIGGERED, Ordering::Release);
+        self.triggered.store(TRIGGERED, Ordering::SeqCst);
         if self.spinning.load(Ordering::Acquire) == SPINNING {
             return;
         }

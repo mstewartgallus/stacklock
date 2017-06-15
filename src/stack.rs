@@ -150,7 +150,7 @@ impl Stack {
             let new = Aba::new(node, head.tag().wrapping_add(1));
 
             match self.head
-                .compare_exchange_weak(head, new, Ordering::Release, Ordering::Relaxed) {
+                .compare_exchange_weak(head, new, Ordering::SeqCst, Ordering::Relaxed) {
                 Err(newhead) => {
                     head = newhead;
                 }
@@ -190,7 +190,7 @@ impl Stack {
                 let new = Aba::new(next, head.tag().wrapping_add(1));
 
                 match self.head
-                    .compare_exchange_weak(head, new, Ordering::AcqRel, Ordering::Relaxed) {
+                    .compare_exchange_weak(head, new, Ordering::SeqCst, Ordering::Relaxed) {
                     Err(newhead) => {
                         head = newhead;
                         if head.ptr() == dummy_node() {
