@@ -16,6 +16,10 @@
 #![feature(integer_atomics)]
 #![feature(const_fn)]
 
+#[cfg(feature = "lin-log")]
+#[macro_use]
+extern crate lazy_static;
+
 #[macro_use]
 extern crate syscall;
 
@@ -64,12 +68,16 @@ impl QLock {
             let mut node = Node::new();
 
             unsafe {
+                let ev = log::push_event(&self.stack, &node);
                 self.stack.push(&mut node);
+                ev.complete();
             }
 
             self.flush();
 
+            let ev = log::wait_event(&node);
             node.wait();
+            ev.complete();
         }
 
         return QLockGuard { lock: self };
@@ -78,7 +86,11 @@ impl QLock {
     fn attempt_acquire(&self) -> bool {
         let mut counter = 0usize;
         loop {
-            if self.lock.try_acquire() {
+            let ev = log::try_acquire_event(&self.lock);
+            let acq_results = self.lock.try_acquire();
+            ev.complete(acq_results);
+
+            if acq_results {
                 return true;
             }
 
@@ -96,37 +108,297 @@ impl QLock {
     }
 
     fn flush(&self) {
-        while !self.stack.empty() {
-            if !self.lock.try_acquire() {
+        let empty;
+        {
+            let ev = log::empty_event(&self.stack);
+            empty = self.stack.empty();
+            ev.complete(empty);
+        }
+        while !empty {
+            let acquired;
+            {
+                let ev = log::try_acquire_event(&self.lock);
+                acquired = self.lock.try_acquire();
+                ev.complete(acquired);
+            }
+            if !acquired {
                 return;
             }
-            let popped = self.stack.pop();
+            let popped;
+            {
+                let ev = log::pop_event(&self.stack);
+                popped = self.stack.pop();
+                ev.complete(popped);
+            }
             if popped != dummy_node() {
                 unsafe {
                     let pop_ref = &mut *popped;
+                    let ev = log::signal_event(pop_ref);
                     pop_ref.signal();
+                    ev.complete();
                 }
                 return;
             }
 
+            let ev = log::release_event(&self.lock);
             self.lock.release();
+            ev.complete();
         }
     }
 }
 
 impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
-        let popped = self.lock.stack.pop();
+        let popped;
+        {
+            let ev = log::pop_event(&self.lock.stack);
+            popped = self.lock.stack.pop();
+            ev.complete(popped);
+        }
         if popped != dummy_node() {
             unsafe {
                 let pop_ref = &mut *popped;
+                let ev = log::signal_event(pop_ref);
                 pop_ref.signal();
+                ev.complete();
             }
             return;
         }
 
-        self.lock.lock.release();
+        {
+            let ev = log::release_event(&self.lock.lock);
+            self.lock.lock.release();
+            ev.complete();
+        }
 
         self.lock.flush();
+    }
+}
+
+#[cfg(not(feature = "lin-log"))]
+mod log {
+    use stack::{Node, Stack};
+    use mutex::RawMutex;
+
+    pub struct EmptyEvent;
+    pub fn empty_event(_stack_ptr: *const Stack) -> EmptyEvent {
+        EmptyEvent
+    }
+    impl EmptyEvent {
+        pub fn complete(self, _was_empty: bool) {}
+    }
+
+    pub struct PushEvent;
+    pub fn push_event(_stack_ptr: *const Stack, _node: *const Node) -> PushEvent {
+        PushEvent
+    }
+    impl PushEvent {
+        pub fn complete(self) {}
+    }
+
+    pub struct PopEvent;
+    pub fn pop_event(_stack_ptr: *const Stack) -> PopEvent {
+        PopEvent
+    }
+    impl PopEvent {
+        pub fn complete(self, _popped: *const Node) {}
+    }
+
+    pub struct WaitEvent;
+    pub fn wait_event(_node_ptr: *const Node) -> WaitEvent {
+        WaitEvent
+    }
+    impl WaitEvent {
+        pub fn complete(self) {}
+    }
+
+    pub struct SignalEvent;
+    pub fn signal_event(_node_ptr: *const Node) -> SignalEvent {
+        SignalEvent
+    }
+    impl SignalEvent {
+        pub fn complete(self) {}
+    }
+
+    pub struct TryAcquireEvent;
+    pub fn try_acquire_event(_mutex_ptr: *const RawMutex) -> TryAcquireEvent {
+        TryAcquireEvent
+    }
+    impl TryAcquireEvent {
+        pub fn complete(self, _acquired: bool) {}
+    }
+
+    pub struct ReleaseEvent;
+    pub fn release_event(_mutex_ptr: *const RawMutex) -> ReleaseEvent {
+        ReleaseEvent
+    }
+    impl ReleaseEvent {
+        pub fn complete(self) {}
+    }
+}
+
+#[cfg(feature = "lin-log")]
+mod log {
+    use stack::{Node, Stack};
+    use mutex::RawMutex;
+    use std::sync::Mutex;
+    use std::fs::File;
+    use std::io::{Write, BufWriter};
+
+    lazy_static! {
+        static ref LOG_FILE: Mutex<BufWriter<File>> = {
+            let file = File::create("linearizability.log").expect("cannot open file");
+            Mutex::new(BufWriter::new(file))
+        };
+
+        static ref EVENT_COUNTER: Mutex<u64> = {
+            Mutex::new(0)
+        };
+    }
+
+    fn get_id() -> u64 {
+        let mut id = EVENT_COUNTER.lock().unwrap();
+        let val = *id;
+        *id += 1;
+        return val;
+    }
+
+    pub struct EmptyEvent {
+        id: u64,
+    }
+    pub fn empty_event(stack_ptr: *const Stack) -> EmptyEvent {
+        let id = get_id();
+        writeln!(&mut *LOG_FILE.lock().unwrap(),
+                 "{}: empty {:?}",
+                 id,
+                 stack_ptr)
+            .unwrap();
+        EmptyEvent { id: id }
+    }
+    impl EmptyEvent {
+        pub fn complete(self, was_empty: bool) {
+            writeln!(&mut *LOG_FILE.lock().unwrap(),
+                     "-> {}: empty {}",
+                     self.id,
+                     was_empty)
+                .unwrap();
+        }
+    }
+
+    pub struct PushEvent {
+        id: u64,
+    }
+    pub fn push_event(stack_ptr: *const Stack, node: *const Node) -> PushEvent {
+        let id = get_id();
+        writeln!(&mut *LOG_FILE.lock().unwrap(),
+                 "{}: push {:?} {:?}",
+                 id,
+                 stack_ptr,
+                 node)
+            .unwrap();
+        PushEvent { id: id }
+    }
+    impl PushEvent {
+        pub fn complete(self) {
+            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: push", self.id).unwrap();
+        }
+    }
+
+    pub struct PopEvent {
+        id: u64,
+    }
+    pub fn pop_event(stack_ptr: *const Stack) -> PopEvent {
+        let id = get_id();
+        writeln!(&mut *LOG_FILE.lock().unwrap(),
+                 "{}: pop {:?}",
+                 id,
+                 stack_ptr)
+            .unwrap();
+        PopEvent { id: id }
+    }
+    impl PopEvent {
+        pub fn complete(self, popped: *const Node) {
+            writeln!(&mut *LOG_FILE.lock().unwrap(),
+                     "-> {}: pop {:?}",
+                     self.id,
+                     popped)
+                .unwrap();
+        }
+    }
+
+    pub struct WaitEvent {
+        id: u64,
+    }
+    pub fn wait_event(node_ptr: *const Node) -> WaitEvent {
+        let id = get_id();
+        writeln!(&mut *LOG_FILE.lock().unwrap(),
+                 "{}: wait {:?}",
+                 id,
+                 node_ptr)
+            .unwrap();
+        WaitEvent { id: id }
+    }
+    impl WaitEvent {
+        pub fn complete(self) {
+            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: wait", self.id).unwrap();
+        }
+    }
+
+    pub struct SignalEvent {
+        id: u64,
+    }
+    pub fn signal_event(node_ptr: *const Node) -> SignalEvent {
+        let id = get_id();
+        writeln!(&mut *LOG_FILE.lock().unwrap(),
+                 "{}: signal {:?}",
+                 id,
+                 node_ptr)
+            .unwrap();
+        SignalEvent { id: id }
+    }
+    impl SignalEvent {
+        pub fn complete(self) {
+            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: signal", self.id).unwrap();
+        }
+    }
+
+    pub struct TryAcquireEvent {
+        id: u64,
+    }
+    pub fn try_acquire_event(mutex_ptr: *const RawMutex) -> TryAcquireEvent {
+        let id = get_id();
+        writeln!(&mut *LOG_FILE.lock().unwrap(),
+                 "{}: try_acquire {:?}",
+                 id,
+                 mutex_ptr)
+            .unwrap();
+        TryAcquireEvent { id: id }
+    }
+    impl TryAcquireEvent {
+        pub fn complete(self, acquired: bool) {
+            writeln!(&mut *LOG_FILE.lock().unwrap(),
+                     "-> {}: try_acquire {}",
+                     self.id,
+                     acquired)
+                .unwrap();
+        }
+    }
+
+    pub struct ReleaseEvent {
+        id: u64,
+    }
+    pub fn release_event(mutex_ptr: *const RawMutex) -> ReleaseEvent {
+        let id = get_id();
+        writeln!(&mut *LOG_FILE.lock().unwrap(),
+                 "{}: release {:?}",
+                 id,
+                 mutex_ptr)
+            .unwrap();
+        ReleaseEvent { id: id }
+    }
+    impl ReleaseEvent {
+        pub fn complete(self) {
+            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: release", self.id).unwrap();
+        }
     }
 }
