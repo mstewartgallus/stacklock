@@ -27,8 +27,12 @@ mod mutex;
 mod stack;
 mod notifier;
 
+use qlock_util::backoff;
+
 use stack::{Node, Stack, dummy_node};
 use mutex::RawMutex;
+
+const LOOPS: usize = 4;
 
 pub struct QLock {
     stack: Stack,
@@ -50,6 +54,12 @@ impl QLock {
     }
 
     pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
+        // As an optimization spin a bit trying to get the lock before
+        // falling back to a private node to spin on.
+        if self.attempt_acquire() {
+            return QLockGuard { lock: self };
+        }
+
         {
             let mut node = Node::new();
 
@@ -63,6 +73,26 @@ impl QLock {
         }
 
         return QLockGuard { lock: self };
+    }
+
+    fn attempt_acquire(&self) -> bool {
+        let mut counter = 0usize;
+        loop {
+            if self.lock.try_acquire() {
+                return true;
+            }
+
+            if counter > LOOPS {
+                return false;
+            }
+            backoff::yield_now();
+
+            let spins = backoff::thread_num(1, 1 << counter);
+
+            backoff::pause_times(spins);
+
+            counter = counter.wrapping_add(1);
+        }
     }
 
     fn flush(&self) {
