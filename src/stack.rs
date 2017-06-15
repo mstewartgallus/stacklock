@@ -133,6 +133,10 @@ impl Stack {
         Stack { head: CacheLineAligned::new(AtomicAba::new(Aba::new(dummy_node(), 0))) }
     }
 
+    pub fn empty(&self) -> bool {
+        self.head.load(Ordering::Acquire).ptr() == dummy_node()
+    }
+
     pub unsafe fn push(&self, node: *mut Node) {
         let mut head = self.head.load(Ordering::Relaxed);
 

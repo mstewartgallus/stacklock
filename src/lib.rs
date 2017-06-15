@@ -66,7 +66,10 @@ impl QLock {
     }
 
     fn flush(&self) {
-        if self.lock.try_acquire() {
+        while !self.stack.empty() {
+            if !self.lock.try_acquire() {
+                return;
+            }
             let popped = self.stack.pop();
             if popped != dummy_node() {
                 unsafe {
