@@ -143,7 +143,7 @@ CONSTANT NULL
             print <<self, "start">>; 
             call lock(L);
         CS:
-            assert \A i \in 1..NUM_PROCESSES : (i = self) => (pc[i] = "CS");
+            assert \A i \in 1..NUM_PROCESSES : (i = self) <=> (pc[i] = "CS");
         E:
             call unlock(L);
         DEBUG_END:
@@ -174,7 +174,7 @@ CONSTANT defaultInitValue
 VARIABLES Locks, rVal, Nodes, pc, stack
 
 (* define statement *)
-NUM_PROCESSES == 3
+NUM_PROCESSES == 2
 NUM_LOCKS == 1
 L == 1
 
@@ -479,7 +479,7 @@ A(self) == /\ pc[self] = "A"
                            Stack_, Node_, Stack, Node_w, Node >>
 
 CS(self) == /\ pc[self] = "CS"
-            /\ Assert(\A i \in 1..NUM_PROCESSES : (i = self) => (pc[i] = "CS"), 
+            /\ Assert(\A i \in 1..NUM_PROCESSES : (i = self) <=> (pc[i] = "CS"), 
                       "Failure of assertion at line 146, column 13.")
             /\ pc' = [pc EXCEPT ![self] = "E"]
             /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, Lock_u, Lock_f, 
