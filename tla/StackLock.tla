@@ -101,7 +101,7 @@ CONSTANT NULL
     begin
         A:
             print <<self, "push">>;
-            Locks.Stack[Stack] := Append(Locks.Stack[Stack], Node);
+            Locks.Stack[Stack] := <<Node>> \o Locks.Stack[Stack];
             return;
     end procedure;
     
@@ -174,7 +174,7 @@ CONSTANT defaultInitValue
 VARIABLES Locks, rVal, Nodes, pc, stack
 
 (* define statement *)
-NUM_PROCESSES == 2
+NUM_PROCESSES == 3
 NUM_LOCKS == 1
 L == 1
 
@@ -409,7 +409,7 @@ release(self) == A_r(self)
 
 A_p(self) == /\ pc[self] = "A_p"
              /\ PrintT(<<self, "push">>)
-             /\ Locks' = [Locks EXCEPT !.Stack[Stack_[self]] = Append(Locks.Stack[Stack_[self]], Node_[self])]
+             /\ Locks' = [Locks EXCEPT !.Stack[Stack_[self]] = <<Node_[self]>> \o Locks.Stack[Stack_[self]]]
              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
              /\ Stack_' = [Stack_ EXCEPT ![self] = Head(stack[self]).Stack_]
              /\ Node_' = [Node_ EXCEPT ![self] = Head(stack[self]).Node_]
