@@ -241,6 +241,7 @@ mod log {
 mod log {
     use stack::{Node, Stack};
     use mutex::RawMutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Mutex;
     use std::fs::File;
     use std::io::{Write, BufWriter};
@@ -251,16 +252,13 @@ mod log {
             Mutex::new(BufWriter::new(file))
         };
 
-        static ref EVENT_COUNTER: Mutex<u64> = {
-            Mutex::new(0)
+        static ref EVENT_COUNTER: AtomicU64 = {
+            AtomicU64::new(0)
         };
     }
 
     fn get_id() -> u64 {
-        let mut id = EVENT_COUNTER.lock().unwrap();
-        let val = *id;
-        *id += 1;
-        return val;
+        EVENT_COUNTER.fetch_add(1, Ordering::Relaxed)
     }
 
     pub struct EmptyEvent {
@@ -269,7 +267,7 @@ mod log {
     pub fn empty_event(stack_ptr: *const Stack) -> EmptyEvent {
         let id = get_id();
         writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{}: empty {:?}",
+                 "{{:process {}, :type :invoke, :f :empty, :value {:?} }}",
                  id,
                  stack_ptr)
             .unwrap();
@@ -278,7 +276,7 @@ mod log {
     impl EmptyEvent {
         pub fn complete(self, was_empty: bool) {
             writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "-> {}: empty {}",
+                     "{{:process {}, :type :ok, :f :empty, :value {} }}",
                      self.id,
                      was_empty)
                 .unwrap();
@@ -291,7 +289,7 @@ mod log {
     pub fn push_event(stack_ptr: *const Stack, node: *const Node) -> PushEvent {
         let id = get_id();
         writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{}: push {:?} {:?}",
+                 "{{:process {}, :type :invoke, :f :push, :value (list {:?} {:?})}}",
                  id,
                  stack_ptr,
                  node)
@@ -300,7 +298,10 @@ mod log {
     }
     impl PushEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: push", self.id).unwrap();
+            writeln!(&mut *LOG_FILE.lock().unwrap(),
+                     "{{:process {}, :type :ok, :f :push, :value (list)}}",
+                     self.id)
+                .unwrap();
         }
     }
 
@@ -310,7 +311,7 @@ mod log {
     pub fn pop_event(stack_ptr: *const Stack) -> PopEvent {
         let id = get_id();
         writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{}: pop {:?}",
+                 "{{:process {}, :type :invoke, :f :pop, :value {:?}}}",
                  id,
                  stack_ptr)
             .unwrap();
@@ -319,7 +320,7 @@ mod log {
     impl PopEvent {
         pub fn complete(self, popped: *const Node) {
             writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "-> {}: pop {:?}",
+                     "{{:process {}, :type :ok, :f :pop, :value {:?}}}",
                      self.id,
                      popped)
                 .unwrap();
@@ -332,7 +333,7 @@ mod log {
     pub fn wait_event(node_ptr: *const Node) -> WaitEvent {
         let id = get_id();
         writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{}: wait {:?}",
+                 "{{:process {}, :type :invoke, :f :wait, :value {:?}}}",
                  id,
                  node_ptr)
             .unwrap();
@@ -340,7 +341,10 @@ mod log {
     }
     impl WaitEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: wait", self.id).unwrap();
+            writeln!(&mut *LOG_FILE.lock().unwrap(),
+                     "{{:process {}, :type :ok, :f :wait, :value (list)}}",
+                     self.id)
+                .unwrap();
         }
     }
 
@@ -350,7 +354,7 @@ mod log {
     pub fn signal_event(node_ptr: *const Node) -> SignalEvent {
         let id = get_id();
         writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{}: signal {:?}",
+                 "{{:process {}, :type :invoke, :f :signal, :value {:?}}}",
                  id,
                  node_ptr)
             .unwrap();
@@ -358,7 +362,10 @@ mod log {
     }
     impl SignalEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: signal", self.id).unwrap();
+            writeln!(&mut *LOG_FILE.lock().unwrap(),
+                     "{{:process {}, :type :ok, :f :signal, :value (list)}}",
+                     self.id)
+                .unwrap();
         }
     }
 
@@ -368,7 +375,7 @@ mod log {
     pub fn try_acquire_event(mutex_ptr: *const RawMutex) -> TryAcquireEvent {
         let id = get_id();
         writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{}: try_acquire {:?}",
+                 "{{:process {}, :type :invoke, :f :try_acquire, :value {:?}}}",
                  id,
                  mutex_ptr)
             .unwrap();
@@ -377,7 +384,7 @@ mod log {
     impl TryAcquireEvent {
         pub fn complete(self, acquired: bool) {
             writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "-> {}: try_acquire {}",
+                     "{{:process {}, :type :ok, :f :try_acquire, :value {}}}",
                      self.id,
                      acquired)
                 .unwrap();
@@ -390,7 +397,7 @@ mod log {
     pub fn release_event(mutex_ptr: *const RawMutex) -> ReleaseEvent {
         let id = get_id();
         writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{}: release {:?}",
+                 "{{:process {}, :type :invoke, :f :release, :value {:?}}}",
                  id,
                  mutex_ptr)
             .unwrap();
@@ -398,7 +405,10 @@ mod log {
     }
     impl ReleaseEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(), "-> {}: release", self.id).unwrap();
+            writeln!(&mut *LOG_FILE.lock().unwrap(),
+                     "{{:process {}, :type :ok, :f :release, :value (list)}}",
+                     self.id)
+                .unwrap();
         }
     }
 }
