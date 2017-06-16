@@ -43,6 +43,6 @@ impl RawMutex {
     }
 
     pub fn release(&self) {
-        self.locked.store(false, Ordering::Release);
+        self.locked.store(false, Ordering::SeqCst);
     }
 }

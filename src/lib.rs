@@ -108,13 +108,18 @@ impl QLock {
     }
 
     fn flush(&self) {
-        let empty;
+        let mut empty;
         {
             let ev = log::empty_event(&self.stack);
             empty = self.stack.empty();
             ev.complete(empty);
         }
-        while !empty {
+        if empty {
+            return;
+        }
+
+        let mut counter = 0usize;
+        loop {
             let acquired;
             {
                 let ev = log::try_acquire_event(&self.lock);
@@ -143,6 +148,25 @@ impl QLock {
             let ev = log::release_event(&self.lock);
             self.lock.release();
             ev.complete();
+
+            {
+                let ev = log::empty_event(&self.stack);
+                empty = self.stack.empty();
+                ev.complete(empty);
+            }
+            if empty {
+                return;
+            }
+
+            backoff::yield_now();
+
+            let spins = backoff::thread_num(1, 1 << counter);
+
+            backoff::pause_times(spins);
+
+            if counter < 4 {
+                counter = counter.wrapping_add(1);
+            }
         }
     }
 }
