@@ -3,16 +3,14 @@ EXTENDS Naturals, TLC, Sequences
 
 CONSTANT NUM_PROCESSES
 CONSTANT NUM_LOOPS
-CONSTANT SHOULD_LOG
 
-(*--fair algorithm lockAlg
+(*--algorithm lockAlg
     variables
         Locks = [
             Stack |-> [ LockId \in 1..NUM_LOCKS |-> <<>> ],
             Lock |-> [ LockId \in 1..NUM_LOCKS |-> FALSE ]
             ],
-        rVal = [ Id \in 1..NUM_PROCESSES |-> defaultInitValue ],
-        Nodes = [ Id \in 1..NUM_PROCESSES |-> defaultInitValue ];
+        Nodes = [ self \in ProcSet |-> defaultInitValue ];
     
     define
         NULL == 0
@@ -20,151 +18,113 @@ CONSTANT SHOULD_LOG
         L == 1
     end define;
 
-    macro LOG(ToLog)
+    macro try_acquire(Result, Lock)
     begin
-        if SHOULD_LOG then
-            print ToLog;
+        if Locks.Lock[Lock] then
+            Result := FALSE;
+        else
+            Locks.Lock[Lock] := TRUE;
+            Result := TRUE;
         end if;
     end macro;
-        
-    macro TRACE(ToLog)
+    
+    macro release(Lock)
     begin
-        LOG(<<self, Head(stack[self])["procedure"]>> \o ToLog);
+        assert Locks.Lock[Lock];
+        Locks.Lock[Lock] := FALSE;
     end macro;
     
-    procedure lock(Lock)
-        variables Counter = 0;
+    macro pop(Popped, Stack)
     begin
-    DEBUG:
-        TRACE(<<>>);
+        if Locks.Stack[Stack] = <<>> then
+            Popped := NULL;
+        else
+            Popped := Head(Locks.Stack[Stack]);
+            Locks.Stack[Stack] := Tail(Locks.Stack[Stack]);
+        end if;
+    end macro;
+    
+    macro push(Stack, Node)
+    begin
+        Locks.Stack[Stack] := <<Node>> \o Locks.Stack[Stack];
+    end macro;
+
+    macro wait(Node)
+    begin
+        await Nodes[self];
+        Nodes[self] := NULL;
+    end macro;
+    
+    macro signal(Node)
+    begin
+        assert Nodes[Node] = FALSE;
+        Nodes[Node] := TRUE;
+    end macro;
+
+    procedure lock(Lock)
+        variables Acquired, Counter = 0;
+    begin
     ATTEMPT_ACQUIRE:
         while Counter < 4 do
-            call try_acquire(Lock);
-        CHECK_ACQUIRE:
-            if rVal[self] then
-                return;
+            try_acquire(Acquired, Lock);
+            if Acquired then
+                RET: return;
             end if;
         UPDATE_COUNTER:
             Counter := Counter + 1;
         end while;
     PUSH_NODE:
         Nodes[self] := FALSE;
-        call push(Lock, self);
+        push(Lock, self);
     FLUSH_LOCK:
         call flush(Lock);
     WAIT:
-        call wait(self);
+        wait(self);
         return;
     end procedure;
     
     procedure unlock(Lock)
+        variables Popped;
     begin
     POP:
-        TRACE(<<>>);
-        call pop(Lock);
-    CHECK_POP:
-        if rVal[self] /= NULL then
-            call signal(rVal[self]);
-            return;
+        pop(Popped, Lock);
+        if Popped /= NULL then
+            signal(Popped);
+            RET: return;
         end if;
     RELEASE:
-        call release(Lock);
+        release(Lock);
     FLUSH_LOCK:
         call flush(Lock);
         return;
     end procedure;
     
     procedure flush(Lock)
+        variables Popped, Acquired;
     begin
-    DEBUG:
-        TRACE(<<>>);
     LOOP:
         while Locks.Stack[Lock] /= <<>> do
         TRY_ACQUIRE:
-            call try_acquire(Lock);
-        CHECK_ACQUIRE:
-            if ~rVal[self] then
-                return;
+            try_acquire(Acquired, Lock);
+            if ~Acquired then
+                RET: return;
             end if;
         POP:
-            call pop(Lock);
+            pop(Popped, Lock);
         CHECK_POP:
-            if rVal[self]/= NULL then
-                call signal(rVal[self]);
+            if Popped /= NULL then
+                signal(Popped);
                 return;
             end if;
         RELEASE:
-            call release(Lock);
+            release(Lock);
         end while;
         return;
     end procedure;
     
-    procedure try_acquire(Lock)
-    begin
-    A:
-        TRACE(<<Locks.Lock[Lock]>>);
-        if Locks.Lock[Lock] then
-            rVal[self] := FALSE;
-        else
-            Locks.Lock[Lock] := TRUE;
-            rVal[self] := TRUE;
-        end if;
-        return;
-    end procedure;
-    
-    procedure release(Lock)
-    begin
-    A:
-        TRACE(<<>>);
-        assert Locks.Lock[Lock];
-        Locks.Lock[Lock] := FALSE;
-        return;
-    end procedure;
-    
-    procedure push(Stack, Node)
-    begin
-    A:
-        TRACE(<<>>);
-        Locks.Stack[Stack] := <<Node>> \o Locks.Stack[Stack];
-        return;
-    end procedure;
-    
-    procedure pop(Stack)
-    begin
-    A:
-        TRACE(<<>>);
-        if Locks.Stack[Stack] = <<>> then
-            rVal[self] := NULL;
-        else
-            rVal[self] := Head(Locks.Stack[Stack]);
-            Locks.Stack[Stack] := Tail(Locks.Stack[Stack]);
-        end if;
-        return;
-    end procedure;
-
-    procedure wait(Node)
-    begin
-    A:
-        TRACE(<<>>);
-        await Nodes[self];
-        Nodes[self] := NULL;
-        return;
-    end procedure;
-    
-    procedure signal(Node)
-    begin
-    A:
-        TRACE(<<>>);
-        assert Nodes[Node] = FALSE;
-        Nodes[Node] := TRUE;
-        return;
-    end procedure;
-    
-    fair+ process p \in 1..NUM_PROCESSES
+    fair process p \in 1..NUM_PROCESSES
         variables Counter = 0;
     begin
-    LOCK:
-        LOG(<<self, "start">>); 
     LOOP:
         while Counter < NUM_LOOPS do
             call lock(L);
@@ -175,45 +135,34 @@ CONSTANT SHOULD_LOG
         COUNT:
             Counter := Counter + 1;
         end while;
-    DEBUG_END:
-        LOG(<<self, "finish">>); 
     end process;
 end algorithm;
 *)
 \* BEGIN TRANSLATION
-\* Label DEBUG of procedure lock at line 25 col 9 changed to DEBUG_
-\* Label CHECK_ACQUIRE of procedure lock at line 44 col 13 changed to CHECK_ACQUIRE_
-\* Label FLUSH_LOCK of procedure lock at line 54 col 9 changed to FLUSH_LOCK_
-\* Label POP of procedure unlock at line 25 col 9 changed to POP_
-\* Label CHECK_POP of procedure unlock at line 66 col 9 changed to CHECK_POP_
-\* Label RELEASE of procedure unlock at line 71 col 9 changed to RELEASE_
-\* Label LOOP of procedure flush at line 82 col 9 changed to LOOP_
-\* Label A of procedure try_acquire at line 25 col 9 changed to A_
-\* Label A of procedure release at line 25 col 9 changed to A_r
-\* Label A of procedure push at line 25 col 9 changed to A_p
-\* Label A of procedure pop at line 25 col 9 changed to A_po
-\* Label A of procedure wait at line 25 col 9 changed to A_w
-\* Process variable Counter of process p at line 164 col 19 changed to Counter_
-\* Parameter Lock of procedure lock at line 35 col 20 changed to Lock_
-\* Parameter Lock of procedure unlock at line 60 col 22 changed to Lock_u
-\* Parameter Lock of procedure flush at line 77 col 21 changed to Lock_f
-\* Parameter Lock of procedure try_acquire at line 102 col 27 changed to Lock_t
-\* Parameter Stack of procedure push at line 124 col 20 changed to Stack_
-\* Parameter Node of procedure push at line 124 col 27 changed to Node_
-\* Parameter Node of procedure wait at line 145 col 20 changed to Node_w
+\* Label RET of procedure lock at line 71 col 22 changed to RET_
+\* Label FLUSH_LOCK of procedure lock at line 80 col 9 changed to FLUSH_LOCK_
+\* Label POP of procedure unlock at line 39 col 9 changed to POP_
+\* Label RET of procedure unlock at line 93 col 18 changed to RET_u
+\* Label RELEASE of procedure unlock at line 33 col 9 changed to RELEASE_
+\* Label LOOP of procedure flush at line 106 col 9 changed to LOOP_
+\* Process variable Counter of process p at line 126 col 19 changed to Counter_
+\* Procedure variable Acquired of procedure lock at line 65 col 19 changed to Acquired_
+\* Procedure variable Popped of procedure unlock at line 87 col 19 changed to Popped_
+\* Parameter Lock of procedure lock at line 64 col 20 changed to Lock_
+\* Parameter Lock of procedure unlock at line 86 col 22 changed to Lock_u
 CONSTANT defaultInitValue
-VARIABLES Locks, rVal, Nodes, pc, stack
+VARIABLES Locks, Nodes, pc, stack
 
 (* define statement *)
 NULL == 0
 NUM_LOCKS == 1
 L == 1
 
-VARIABLES Lock_, Counter, Lock_u, Lock_f, Lock_t, Lock, Stack_, Node_, Stack, 
-          Node_w, Node, Counter_
+VARIABLES Lock_, Acquired_, Counter, Lock_u, Popped_, Lock, Popped, Acquired, 
+          Counter_
 
-vars == << Locks, rVal, Nodes, pc, stack, Lock_, Counter, Lock_u, Lock_f, 
-           Lock_t, Lock, Stack_, Node_, Stack, Node_w, Node, Counter_ >>
+vars == << Locks, Nodes, pc, stack, Lock_, Acquired_, Counter, Lock_u, 
+           Popped_, Lock, Popped, Acquired, Counter_ >>
 
 ProcSet == (1..NUM_PROCESSES)
 
@@ -222,426 +171,266 @@ Init == (* Global variables *)
                    Stack |-> [ LockId \in 1..NUM_LOCKS |-> <<>> ],
                    Lock |-> [ LockId \in 1..NUM_LOCKS |-> FALSE ]
                    ]
-        /\ rVal = [ Id \in 1..NUM_PROCESSES |-> defaultInitValue ]
-        /\ Nodes = [ Id \in 1..NUM_PROCESSES |-> defaultInitValue ]
+        /\ Nodes = [ self \in ProcSet |-> defaultInitValue ]
         (* Procedure lock *)
         /\ Lock_ = [ self \in ProcSet |-> defaultInitValue]
+        /\ Acquired_ = [ self \in ProcSet |-> defaultInitValue]
         /\ Counter = [ self \in ProcSet |-> 0]
         (* Procedure unlock *)
         /\ Lock_u = [ self \in ProcSet |-> defaultInitValue]
+        /\ Popped_ = [ self \in ProcSet |-> defaultInitValue]
         (* Procedure flush *)
-        /\ Lock_f = [ self \in ProcSet |-> defaultInitValue]
-        (* Procedure try_acquire *)
-        /\ Lock_t = [ self \in ProcSet |-> defaultInitValue]
-        (* Procedure release *)
         /\ Lock = [ self \in ProcSet |-> defaultInitValue]
-        (* Procedure push *)
-        /\ Stack_ = [ self \in ProcSet |-> defaultInitValue]
-        /\ Node_ = [ self \in ProcSet |-> defaultInitValue]
-        (* Procedure pop *)
-        /\ Stack = [ self \in ProcSet |-> defaultInitValue]
-        (* Procedure wait *)
-        /\ Node_w = [ self \in ProcSet |-> defaultInitValue]
-        (* Procedure signal *)
-        /\ Node = [ self \in ProcSet |-> defaultInitValue]
+        /\ Popped = [ self \in ProcSet |-> defaultInitValue]
+        /\ Acquired = [ self \in ProcSet |-> defaultInitValue]
         (* Process p *)
         /\ Counter_ = [self \in 1..NUM_PROCESSES |-> 0]
         /\ stack = [self \in ProcSet |-> << >>]
-        /\ pc = [self \in ProcSet |-> "LOCK"]
-
-DEBUG_(self) == /\ pc[self] = "DEBUG_"
-                /\ IF SHOULD_LOG
-                      THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                      ELSE /\ TRUE
-                /\ pc' = [pc EXCEPT ![self] = "ATTEMPT_ACQUIRE"]
-                /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, Counter, 
-                                Lock_u, Lock_f, Lock_t, Lock, Stack_, Node_, 
-                                Stack, Node_w, Node, Counter_ >>
+        /\ pc = [self \in ProcSet |-> "LOOP"]
 
 ATTEMPT_ACQUIRE(self) == /\ pc[self] = "ATTEMPT_ACQUIRE"
                          /\ IF Counter[self] < 4
-                               THEN /\ /\ Lock_t' = [Lock_t EXCEPT ![self] = Lock_[self]]
-                                       /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "try_acquire",
-                                                                                pc        |->  "CHECK_ACQUIRE_",
-                                                                                Lock_t    |->  Lock_t[self] ] >>
-                                                                            \o stack[self]]
-                                    /\ pc' = [pc EXCEPT ![self] = "A_"]
+                               THEN /\ IF Locks.Lock[Lock_[self]]
+                                          THEN /\ Acquired_' = [Acquired_ EXCEPT ![self] = FALSE]
+                                               /\ Locks' = Locks
+                                          ELSE /\ Locks' = [Locks EXCEPT !.Lock[Lock_[self]] = TRUE]
+                                               /\ Acquired_' = [Acquired_ EXCEPT ![self] = TRUE]
+                                    /\ IF Acquired_'[self]
+                                          THEN /\ pc' = [pc EXCEPT ![self] = "RET_"]
+                                          ELSE /\ pc' = [pc EXCEPT ![self] = "UPDATE_COUNTER"]
                                ELSE /\ pc' = [pc EXCEPT ![self] = "PUSH_NODE"]
-                                    /\ UNCHANGED << stack, Lock_t >>
-                         /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, 
-                                         Lock_u, Lock_f, Lock, Stack_, Node_, 
-                                         Stack, Node_w, Node, Counter_ >>
-
-CHECK_ACQUIRE_(self) == /\ pc[self] = "CHECK_ACQUIRE_"
-                        /\ IF rVal[self]
-                              THEN /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-                                   /\ Counter' = [Counter EXCEPT ![self] = Head(stack[self]).Counter]
-                                   /\ Lock_' = [Lock_ EXCEPT ![self] = Head(stack[self]).Lock_]
-                                   /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                              ELSE /\ pc' = [pc EXCEPT ![self] = "UPDATE_COUNTER"]
-                                   /\ UNCHANGED << stack, Lock_, Counter >>
-                        /\ UNCHANGED << Locks, rVal, Nodes, Lock_u, Lock_f, 
-                                        Lock_t, Lock, Stack_, Node_, Stack, 
-                                        Node_w, Node, Counter_ >>
+                                    /\ UNCHANGED << Locks, Acquired_ >>
+                         /\ UNCHANGED << Nodes, stack, Lock_, Counter, Lock_u, 
+                                         Popped_, Lock, Popped, Acquired, 
+                                         Counter_ >>
 
 UPDATE_COUNTER(self) == /\ pc[self] = "UPDATE_COUNTER"
                         /\ Counter' = [Counter EXCEPT ![self] = Counter[self] + 1]
                         /\ pc' = [pc EXCEPT ![self] = "ATTEMPT_ACQUIRE"]
-                        /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, 
-                                        Lock_u, Lock_f, Lock_t, Lock, Stack_, 
-                                        Node_, Stack, Node_w, Node, Counter_ >>
+                        /\ UNCHANGED << Locks, Nodes, stack, Lock_, Acquired_, 
+                                        Lock_u, Popped_, Lock, Popped, 
+                                        Acquired, Counter_ >>
+
+RET_(self) == /\ pc[self] = "RET_"
+              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+              /\ Acquired_' = [Acquired_ EXCEPT ![self] = Head(stack[self]).Acquired_]
+              /\ Counter' = [Counter EXCEPT ![self] = Head(stack[self]).Counter]
+              /\ Lock_' = [Lock_ EXCEPT ![self] = Head(stack[self]).Lock_]
+              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+              /\ UNCHANGED << Locks, Nodes, Lock_u, Popped_, Lock, Popped, 
+                              Acquired, Counter_ >>
 
 PUSH_NODE(self) == /\ pc[self] = "PUSH_NODE"
                    /\ Nodes' = [Nodes EXCEPT ![self] = FALSE]
-                   /\ /\ Node_' = [Node_ EXCEPT ![self] = self]
-                      /\ Stack_' = [Stack_ EXCEPT ![self] = Lock_[self]]
-                      /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "push",
-                                                               pc        |->  "FLUSH_LOCK_",
-                                                               Stack_    |->  Stack_[self],
-                                                               Node_     |->  Node_[self] ] >>
-                                                           \o stack[self]]
-                   /\ pc' = [pc EXCEPT ![self] = "A_p"]
-                   /\ UNCHANGED << Locks, rVal, Lock_, Counter, Lock_u, Lock_f, 
-                                   Lock_t, Lock, Stack, Node_w, Node, Counter_ >>
+                   /\ Locks' = [Locks EXCEPT !.Stack[Lock_[self]] = <<self>> \o Locks.Stack[Lock_[self]]]
+                   /\ pc' = [pc EXCEPT ![self] = "FLUSH_LOCK_"]
+                   /\ UNCHANGED << stack, Lock_, Acquired_, Counter, Lock_u, 
+                                   Popped_, Lock, Popped, Acquired, Counter_ >>
 
 FLUSH_LOCK_(self) == /\ pc[self] = "FLUSH_LOCK_"
-                     /\ /\ Lock_f' = [Lock_f EXCEPT ![self] = Lock_[self]]
+                     /\ /\ Lock' = [Lock EXCEPT ![self] = Lock_[self]]
                         /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "flush",
                                                                  pc        |->  "WAIT",
-                                                                 Lock_f    |->  Lock_f[self] ] >>
+                                                                 Popped    |->  Popped[self],
+                                                                 Acquired  |->  Acquired[self],
+                                                                 Lock      |->  Lock[self] ] >>
                                                              \o stack[self]]
-                     /\ pc' = [pc EXCEPT ![self] = "DEBUG"]
-                     /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, 
-                                     Lock_u, Lock_t, Lock, Stack_, Node_, 
-                                     Stack, Node_w, Node, Counter_ >>
+                     /\ Popped' = [Popped EXCEPT ![self] = defaultInitValue]
+                     /\ Acquired' = [Acquired EXCEPT ![self] = defaultInitValue]
+                     /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
+                     /\ UNCHANGED << Locks, Nodes, Lock_, Acquired_, Counter, 
+                                     Lock_u, Popped_, Counter_ >>
 
 WAIT(self) == /\ pc[self] = "WAIT"
-              /\ /\ Counter' = [Counter EXCEPT ![self] = Head(stack[self]).Counter]
-                 /\ Node_w' = [Node_w EXCEPT ![self] = self]
-                 /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "wait",
-                                                          pc        |->  Head(stack[self]).pc,
-                                                          Node_w    |->  Node_w[self] ] >>
-                                                      \o Tail(stack[self])]
-              /\ pc' = [pc EXCEPT ![self] = "A_w"]
-              /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Lock_u, Lock_f, 
-                              Lock_t, Lock, Stack_, Node_, Stack, Node, 
+              /\ Nodes[self]
+              /\ Nodes' = [Nodes EXCEPT ![self] = NULL]
+              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+              /\ Acquired_' = [Acquired_ EXCEPT ![self] = Head(stack[self]).Acquired_]
+              /\ Counter' = [Counter EXCEPT ![self] = Head(stack[self]).Counter]
+              /\ Lock_' = [Lock_ EXCEPT ![self] = Head(stack[self]).Lock_]
+              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+              /\ UNCHANGED << Locks, Lock_u, Popped_, Lock, Popped, Acquired, 
                               Counter_ >>
 
-lock(self) == DEBUG_(self) \/ ATTEMPT_ACQUIRE(self) \/ CHECK_ACQUIRE_(self)
-                 \/ UPDATE_COUNTER(self) \/ PUSH_NODE(self)
-                 \/ FLUSH_LOCK_(self) \/ WAIT(self)
+lock(self) == ATTEMPT_ACQUIRE(self) \/ UPDATE_COUNTER(self) \/ RET_(self)
+                 \/ PUSH_NODE(self) \/ FLUSH_LOCK_(self) \/ WAIT(self)
 
 POP_(self) == /\ pc[self] = "POP_"
-              /\ IF SHOULD_LOG
-                    THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                    ELSE /\ TRUE
-              /\ /\ Stack' = [Stack EXCEPT ![self] = Lock_u[self]]
-                 /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "pop",
-                                                          pc        |->  "CHECK_POP_",
-                                                          Stack     |->  Stack[self] ] >>
-                                                      \o stack[self]]
-              /\ pc' = [pc EXCEPT ![self] = "A_po"]
-              /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                              Lock_f, Lock_t, Lock, Stack_, Node_, Node_w, 
-                              Node, Counter_ >>
+              /\ IF Locks.Stack[Lock_u[self]] = <<>>
+                    THEN /\ Popped_' = [Popped_ EXCEPT ![self] = NULL]
+                         /\ Locks' = Locks
+                    ELSE /\ Popped_' = [Popped_ EXCEPT ![self] = Head(Locks.Stack[Lock_u[self]])]
+                         /\ Locks' = [Locks EXCEPT !.Stack[Lock_u[self]] = Tail(Locks.Stack[Lock_u[self]])]
+              /\ IF Popped_'[self] /= NULL
+                    THEN /\ Assert(Nodes[Popped_'[self]] = FALSE, 
+                                   "Failure of assertion at line 60, column 9 of macro called at line 92, column 13.")
+                         /\ Nodes' = [Nodes EXCEPT ![Popped_'[self]] = TRUE]
+                         /\ pc' = [pc EXCEPT ![self] = "RET_u"]
+                    ELSE /\ pc' = [pc EXCEPT ![self] = "RELEASE_"]
+                         /\ Nodes' = Nodes
+              /\ UNCHANGED << stack, Lock_, Acquired_, Counter, Lock_u, Lock, 
+                              Popped, Acquired, Counter_ >>
 
-CHECK_POP_(self) == /\ pc[self] = "CHECK_POP_"
-                    /\ IF rVal[self] /= NULL
-                          THEN /\ /\ Node' = [Node EXCEPT ![self] = rVal[self]]
-                                  /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "signal",
-                                                                           pc        |->  Head(stack[self]).pc,
-                                                                           Node      |->  Node[self] ] >>
-                                                                       \o Tail(stack[self])]
-                               /\ pc' = [pc EXCEPT ![self] = "A"]
-                          ELSE /\ pc' = [pc EXCEPT ![self] = "RELEASE_"]
-                               /\ UNCHANGED << stack, Node >>
-                    /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                                    Lock_f, Lock_t, Lock, Stack_, Node_, Stack, 
-                                    Node_w, Counter_ >>
+RET_u(self) == /\ pc[self] = "RET_u"
+               /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+               /\ Popped_' = [Popped_ EXCEPT ![self] = Head(stack[self]).Popped_]
+               /\ Lock_u' = [Lock_u EXCEPT ![self] = Head(stack[self]).Lock_u]
+               /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+               /\ UNCHANGED << Locks, Nodes, Lock_, Acquired_, Counter, Lock, 
+                               Popped, Acquired, Counter_ >>
 
 RELEASE_(self) == /\ pc[self] = "RELEASE_"
-                  /\ /\ Lock' = [Lock EXCEPT ![self] = Lock_u[self]]
-                     /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "release",
-                                                              pc        |->  "FLUSH_LOCK",
-                                                              Lock      |->  Lock[self] ] >>
-                                                          \o stack[self]]
-                  /\ pc' = [pc EXCEPT ![self] = "A_r"]
-                  /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                                  Lock_f, Lock_t, Stack_, Node_, Stack, Node_w, 
-                                  Node, Counter_ >>
+                  /\ Assert(Locks.Lock[Lock_u[self]], 
+                            "Failure of assertion at line 33, column 9 of macro called at line 96, column 9.")
+                  /\ Locks' = [Locks EXCEPT !.Lock[Lock_u[self]] = FALSE]
+                  /\ pc' = [pc EXCEPT ![self] = "FLUSH_LOCK"]
+                  /\ UNCHANGED << Nodes, stack, Lock_, Acquired_, Counter, 
+                                  Lock_u, Popped_, Lock, Popped, Acquired, 
+                                  Counter_ >>
 
 FLUSH_LOCK(self) == /\ pc[self] = "FLUSH_LOCK"
-                    /\ /\ Lock_f' = [Lock_f EXCEPT ![self] = Lock_u[self]]
+                    /\ /\ Lock' = [Lock EXCEPT ![self] = Lock_u[self]]
+                       /\ Popped_' = [Popped_ EXCEPT ![self] = Head(stack[self]).Popped_]
                        /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "flush",
                                                                 pc        |->  Head(stack[self]).pc,
-                                                                Lock_f    |->  Lock_f[self] ] >>
+                                                                Popped    |->  Popped[self],
+                                                                Acquired  |->  Acquired[self],
+                                                                Lock      |->  Lock[self] ] >>
                                                             \o Tail(stack[self])]
-                    /\ pc' = [pc EXCEPT ![self] = "DEBUG"]
-                    /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                                    Lock_t, Lock, Stack_, Node_, Stack, Node_w, 
-                                    Node, Counter_ >>
+                    /\ Popped' = [Popped EXCEPT ![self] = defaultInitValue]
+                    /\ Acquired' = [Acquired EXCEPT ![self] = defaultInitValue]
+                    /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
+                    /\ UNCHANGED << Locks, Nodes, Lock_, Acquired_, Counter, 
+                                    Lock_u, Counter_ >>
 
-unlock(self) == POP_(self) \/ CHECK_POP_(self) \/ RELEASE_(self)
+unlock(self) == POP_(self) \/ RET_u(self) \/ RELEASE_(self)
                    \/ FLUSH_LOCK(self)
 
-DEBUG(self) == /\ pc[self] = "DEBUG"
-               /\ IF SHOULD_LOG
-                     THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                     ELSE /\ TRUE
-               /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
-               /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, Counter, 
-                               Lock_u, Lock_f, Lock_t, Lock, Stack_, Node_, 
-                               Stack, Node_w, Node, Counter_ >>
-
 LOOP_(self) == /\ pc[self] = "LOOP_"
-               /\ IF Locks.Stack[Lock_f[self]] /= <<>>
+               /\ IF Locks.Stack[Lock[self]] /= <<>>
                      THEN /\ pc' = [pc EXCEPT ![self] = "TRY_ACQUIRE"]
-                          /\ UNCHANGED << stack, Lock_f >>
+                          /\ UNCHANGED << stack, Lock, Popped, Acquired >>
                      ELSE /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-                          /\ Lock_f' = [Lock_f EXCEPT ![self] = Head(stack[self]).Lock_f]
+                          /\ Popped' = [Popped EXCEPT ![self] = Head(stack[self]).Popped]
+                          /\ Acquired' = [Acquired EXCEPT ![self] = Head(stack[self]).Acquired]
+                          /\ Lock' = [Lock EXCEPT ![self] = Head(stack[self]).Lock]
                           /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-               /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                               Lock_t, Lock, Stack_, Node_, Stack, Node_w, 
-                               Node, Counter_ >>
+               /\ UNCHANGED << Locks, Nodes, Lock_, Acquired_, Counter, Lock_u, 
+                               Popped_, Counter_ >>
 
 TRY_ACQUIRE(self) == /\ pc[self] = "TRY_ACQUIRE"
-                     /\ /\ Lock_t' = [Lock_t EXCEPT ![self] = Lock_f[self]]
-                        /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "try_acquire",
-                                                                 pc        |->  "CHECK_ACQUIRE",
-                                                                 Lock_t    |->  Lock_t[self] ] >>
-                                                             \o stack[self]]
-                     /\ pc' = [pc EXCEPT ![self] = "A_"]
-                     /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, 
-                                     Lock_u, Lock_f, Lock, Stack_, Node_, 
-                                     Stack, Node_w, Node, Counter_ >>
+                     /\ IF Locks.Lock[Lock[self]]
+                           THEN /\ Acquired' = [Acquired EXCEPT ![self] = FALSE]
+                                /\ Locks' = Locks
+                           ELSE /\ Locks' = [Locks EXCEPT !.Lock[Lock[self]] = TRUE]
+                                /\ Acquired' = [Acquired EXCEPT ![self] = TRUE]
+                     /\ IF ~Acquired'[self]
+                           THEN /\ pc' = [pc EXCEPT ![self] = "RET"]
+                           ELSE /\ pc' = [pc EXCEPT ![self] = "POP"]
+                     /\ UNCHANGED << Nodes, stack, Lock_, Acquired_, Counter, 
+                                     Lock_u, Popped_, Lock, Popped, Counter_ >>
 
-CHECK_ACQUIRE(self) == /\ pc[self] = "CHECK_ACQUIRE"
-                       /\ IF ~rVal[self]
-                             THEN /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-                                  /\ Lock_f' = [Lock_f EXCEPT ![self] = Head(stack[self]).Lock_f]
-                                  /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                             ELSE /\ pc' = [pc EXCEPT ![self] = "POP"]
-                                  /\ UNCHANGED << stack, Lock_f >>
-                       /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, 
-                                       Lock_u, Lock_t, Lock, Stack_, Node_, 
-                                       Stack, Node_w, Node, Counter_ >>
-
-POP(self) == /\ pc[self] = "POP"
-             /\ /\ Stack' = [Stack EXCEPT ![self] = Lock_f[self]]
-                /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "pop",
-                                                         pc        |->  "CHECK_POP",
-                                                         Stack     |->  Stack[self] ] >>
-                                                     \o stack[self]]
-             /\ pc' = [pc EXCEPT ![self] = "A_po"]
-             /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                             Lock_f, Lock_t, Lock, Stack_, Node_, Node_w, Node, 
-                             Counter_ >>
-
-CHECK_POP(self) == /\ pc[self] = "CHECK_POP"
-                   /\ IF rVal[self]/= NULL
-                         THEN /\ /\ Node' = [Node EXCEPT ![self] = rVal[self]]
-                                 /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "signal",
-                                                                          pc        |->  Head(stack[self]).pc,
-                                                                          Node      |->  Node[self] ] >>
-                                                                      \o Tail(stack[self])]
-                              /\ pc' = [pc EXCEPT ![self] = "A"]
-                         ELSE /\ pc' = [pc EXCEPT ![self] = "RELEASE"]
-                              /\ UNCHANGED << stack, Node >>
-                   /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                                   Lock_f, Lock_t, Lock, Stack_, Node_, Stack, 
-                                   Node_w, Counter_ >>
-
-RELEASE(self) == /\ pc[self] = "RELEASE"
-                 /\ /\ Lock' = [Lock EXCEPT ![self] = Lock_f[self]]
-                    /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "release",
-                                                             pc        |->  "LOOP_",
-                                                             Lock      |->  Lock[self] ] >>
-                                                         \o stack[self]]
-                 /\ pc' = [pc EXCEPT ![self] = "A_r"]
-                 /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_u, 
-                                 Lock_f, Lock_t, Stack_, Node_, Stack, Node_w, 
-                                 Node, Counter_ >>
-
-flush(self) == DEBUG(self) \/ LOOP_(self) \/ TRY_ACQUIRE(self)
-                  \/ CHECK_ACQUIRE(self) \/ POP(self) \/ CHECK_POP(self)
-                  \/ RELEASE(self)
-
-A_(self) == /\ pc[self] = "A_"
-            /\ IF SHOULD_LOG
-                  THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<Locks.Lock[Lock_t[self]]>>))
-                  ELSE /\ TRUE
-            /\ IF Locks.Lock[Lock_t[self]]
-                  THEN /\ rVal' = [rVal EXCEPT ![self] = FALSE]
-                       /\ Locks' = Locks
-                  ELSE /\ Locks' = [Locks EXCEPT !.Lock[Lock_t[self]] = TRUE]
-                       /\ rVal' = [rVal EXCEPT ![self] = TRUE]
-            /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-            /\ Lock_t' = [Lock_t EXCEPT ![self] = Head(stack[self]).Lock_t]
-            /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-            /\ UNCHANGED << Nodes, Lock_, Counter, Lock_u, Lock_f, Lock, 
-                            Stack_, Node_, Stack, Node_w, Node, Counter_ >>
-
-try_acquire(self) == A_(self)
-
-A_r(self) == /\ pc[self] = "A_r"
-             /\ IF SHOULD_LOG
-                   THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                   ELSE /\ TRUE
-             /\ Assert(Locks.Lock[Lock[self]], 
-                       "Failure of assertion at line 119, column 9.")
-             /\ Locks' = [Locks EXCEPT !.Lock[Lock[self]] = FALSE]
+RET(self) == /\ pc[self] = "RET"
              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+             /\ Popped' = [Popped EXCEPT ![self] = Head(stack[self]).Popped]
+             /\ Acquired' = [Acquired EXCEPT ![self] = Head(stack[self]).Acquired]
              /\ Lock' = [Lock EXCEPT ![self] = Head(stack[self]).Lock]
              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-             /\ UNCHANGED << rVal, Nodes, Lock_, Counter, Lock_u, Lock_f, 
-                             Lock_t, Stack_, Node_, Stack, Node_w, Node, 
-                             Counter_ >>
+             /\ UNCHANGED << Locks, Nodes, Lock_, Acquired_, Counter, Lock_u, 
+                             Popped_, Counter_ >>
 
-release(self) == A_r(self)
+POP(self) == /\ pc[self] = "POP"
+             /\ IF Locks.Stack[Lock[self]] = <<>>
+                   THEN /\ Popped' = [Popped EXCEPT ![self] = NULL]
+                        /\ Locks' = Locks
+                   ELSE /\ Popped' = [Popped EXCEPT ![self] = Head(Locks.Stack[Lock[self]])]
+                        /\ Locks' = [Locks EXCEPT !.Stack[Lock[self]] = Tail(Locks.Stack[Lock[self]])]
+             /\ pc' = [pc EXCEPT ![self] = "CHECK_POP"]
+             /\ UNCHANGED << Nodes, stack, Lock_, Acquired_, Counter, Lock_u, 
+                             Popped_, Lock, Acquired, Counter_ >>
 
-A_p(self) == /\ pc[self] = "A_p"
-             /\ IF SHOULD_LOG
-                   THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                   ELSE /\ TRUE
-             /\ Locks' = [Locks EXCEPT !.Stack[Stack_[self]] = <<Node_[self]>> \o Locks.Stack[Stack_[self]]]
-             /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-             /\ Stack_' = [Stack_ EXCEPT ![self] = Head(stack[self]).Stack_]
-             /\ Node_' = [Node_ EXCEPT ![self] = Head(stack[self]).Node_]
-             /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-             /\ UNCHANGED << rVal, Nodes, Lock_, Counter, Lock_u, Lock_f, 
-                             Lock_t, Lock, Stack, Node_w, Node, Counter_ >>
+CHECK_POP(self) == /\ pc[self] = "CHECK_POP"
+                   /\ IF Popped[self] /= NULL
+                         THEN /\ Assert(Nodes[Popped[self]] = FALSE, 
+                                        "Failure of assertion at line 60, column 9 of macro called at line 116, column 17.")
+                              /\ Nodes' = [Nodes EXCEPT ![Popped[self]] = TRUE]
+                              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                              /\ Popped' = [Popped EXCEPT ![self] = Head(stack[self]).Popped]
+                              /\ Acquired' = [Acquired EXCEPT ![self] = Head(stack[self]).Acquired]
+                              /\ Lock' = [Lock EXCEPT ![self] = Head(stack[self]).Lock]
+                              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                         ELSE /\ pc' = [pc EXCEPT ![self] = "RELEASE"]
+                              /\ UNCHANGED << Nodes, stack, Lock, Popped, 
+                                              Acquired >>
+                   /\ UNCHANGED << Locks, Lock_, Acquired_, Counter, Lock_u, 
+                                   Popped_, Counter_ >>
 
-push(self) == A_p(self)
+RELEASE(self) == /\ pc[self] = "RELEASE"
+                 /\ Assert(Locks.Lock[Lock[self]], 
+                           "Failure of assertion at line 33, column 9 of macro called at line 120, column 13.")
+                 /\ Locks' = [Locks EXCEPT !.Lock[Lock[self]] = FALSE]
+                 /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
+                 /\ UNCHANGED << Nodes, stack, Lock_, Acquired_, Counter, 
+                                 Lock_u, Popped_, Lock, Popped, Acquired, 
+                                 Counter_ >>
 
-A_po(self) == /\ pc[self] = "A_po"
-              /\ IF SHOULD_LOG
-                    THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                    ELSE /\ TRUE
-              /\ IF Locks.Stack[Stack[self]] = <<>>
-                    THEN /\ rVal' = [rVal EXCEPT ![self] = NULL]
-                         /\ Locks' = Locks
-                    ELSE /\ rVal' = [rVal EXCEPT ![self] = Head(Locks.Stack[Stack[self]])]
-                         /\ Locks' = [Locks EXCEPT !.Stack[Stack[self]] = Tail(Locks.Stack[Stack[self]])]
-              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-              /\ Stack' = [Stack EXCEPT ![self] = Head(stack[self]).Stack]
-              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-              /\ UNCHANGED << Nodes, Lock_, Counter, Lock_u, Lock_f, Lock_t, 
-                              Lock, Stack_, Node_, Node_w, Node, Counter_ >>
-
-pop(self) == A_po(self)
-
-A_w(self) == /\ pc[self] = "A_w"
-             /\ IF SHOULD_LOG
-                   THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                   ELSE /\ TRUE
-             /\ Nodes[self]
-             /\ Nodes' = [Nodes EXCEPT ![self] = NULL]
-             /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-             /\ Node_w' = [Node_w EXCEPT ![self] = Head(stack[self]).Node_w]
-             /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-             /\ UNCHANGED << Locks, rVal, Lock_, Counter, Lock_u, Lock_f, 
-                             Lock_t, Lock, Stack_, Node_, Stack, Node, 
-                             Counter_ >>
-
-wait(self) == A_w(self)
-
-A(self) == /\ pc[self] = "A"
-           /\ IF SHOULD_LOG
-                 THEN /\ PrintT(<<self, Head(stack[self])["procedure"]>> \o (<<>>))
-                 ELSE /\ TRUE
-           /\ Assert(Nodes[Node[self]] = FALSE, 
-                     "Failure of assertion at line 158, column 9.")
-           /\ Nodes' = [Nodes EXCEPT ![Node[self]] = TRUE]
-           /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-           /\ Node' = [Node EXCEPT ![self] = Head(stack[self]).Node]
-           /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-           /\ UNCHANGED << Locks, rVal, Lock_, Counter, Lock_u, Lock_f, Lock_t, 
-                           Lock, Stack_, Node_, Stack, Node_w, Counter_ >>
-
-signal(self) == A(self)
-
-LOCK(self) == /\ pc[self] = "LOCK"
-              /\ IF SHOULD_LOG
-                    THEN /\ PrintT(<<self, "start">>)
-                    ELSE /\ TRUE
-              /\ pc' = [pc EXCEPT ![self] = "LOOP"]
-              /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, Counter, 
-                              Lock_u, Lock_f, Lock_t, Lock, Stack_, Node_, 
-                              Stack, Node_w, Node, Counter_ >>
+flush(self) == LOOP_(self) \/ TRY_ACQUIRE(self) \/ RET(self) \/ POP(self)
+                  \/ CHECK_POP(self) \/ RELEASE(self)
 
 LOOP(self) == /\ pc[self] = "LOOP"
               /\ IF Counter_[self] < NUM_LOOPS
                     THEN /\ /\ Lock_' = [Lock_ EXCEPT ![self] = L]
                             /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "lock",
                                                                      pc        |->  "CS",
+                                                                     Acquired_ |->  Acquired_[self],
                                                                      Counter   |->  Counter[self],
                                                                      Lock_     |->  Lock_[self] ] >>
                                                                  \o stack[self]]
+                         /\ Acquired_' = [Acquired_ EXCEPT ![self] = defaultInitValue]
                          /\ Counter' = [Counter EXCEPT ![self] = 0]
-                         /\ pc' = [pc EXCEPT ![self] = "DEBUG_"]
-                    ELSE /\ pc' = [pc EXCEPT ![self] = "DEBUG_END"]
-                         /\ UNCHANGED << stack, Lock_, Counter >>
-              /\ UNCHANGED << Locks, rVal, Nodes, Lock_u, Lock_f, Lock_t, Lock, 
-                              Stack_, Node_, Stack, Node_w, Node, Counter_ >>
+                         /\ pc' = [pc EXCEPT ![self] = "ATTEMPT_ACQUIRE"]
+                    ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
+                         /\ UNCHANGED << stack, Lock_, Acquired_, Counter >>
+              /\ UNCHANGED << Locks, Nodes, Lock_u, Popped_, Lock, Popped, 
+                              Acquired, Counter_ >>
 
 CS(self) == /\ pc[self] = "CS"
             /\ Assert(\A i \in 1..NUM_PROCESSES : (i = self) <=> (pc[i] = "CS"), 
-                      "Failure of assertion at line 172, column 13.")
+                      "Failure of assertion at line 132, column 13.")
             /\ pc' = [pc EXCEPT ![self] = "UNLOCK"]
-            /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, Counter, Lock_u, 
-                            Lock_f, Lock_t, Lock, Stack_, Node_, Stack, Node_w, 
-                            Node, Counter_ >>
+            /\ UNCHANGED << Locks, Nodes, stack, Lock_, Acquired_, Counter, 
+                            Lock_u, Popped_, Lock, Popped, Acquired, Counter_ >>
 
 UNLOCK(self) == /\ pc[self] = "UNLOCK"
                 /\ /\ Lock_u' = [Lock_u EXCEPT ![self] = L]
                    /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "unlock",
                                                             pc        |->  "COUNT",
+                                                            Popped_   |->  Popped_[self],
                                                             Lock_u    |->  Lock_u[self] ] >>
                                                         \o stack[self]]
+                /\ Popped_' = [Popped_ EXCEPT ![self] = defaultInitValue]
                 /\ pc' = [pc EXCEPT ![self] = "POP_"]
-                /\ UNCHANGED << Locks, rVal, Nodes, Lock_, Counter, Lock_f, 
-                                Lock_t, Lock, Stack_, Node_, Stack, Node_w, 
-                                Node, Counter_ >>
+                /\ UNCHANGED << Locks, Nodes, Lock_, Acquired_, Counter, Lock, 
+                                Popped, Acquired, Counter_ >>
 
 COUNT(self) == /\ pc[self] = "COUNT"
                /\ Counter_' = [Counter_ EXCEPT ![self] = Counter_[self] + 1]
                /\ pc' = [pc EXCEPT ![self] = "LOOP"]
-               /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, Counter, 
-                               Lock_u, Lock_f, Lock_t, Lock, Stack_, Node_, 
-                               Stack, Node_w, Node >>
+               /\ UNCHANGED << Locks, Nodes, stack, Lock_, Acquired_, Counter, 
+                               Lock_u, Popped_, Lock, Popped, Acquired >>
 
-DEBUG_END(self) == /\ pc[self] = "DEBUG_END"
-                   /\ IF SHOULD_LOG
-                         THEN /\ PrintT(<<self, "finish">>)
-                         ELSE /\ TRUE
-                   /\ pc' = [pc EXCEPT ![self] = "Done"]
-                   /\ UNCHANGED << Locks, rVal, Nodes, stack, Lock_, Counter, 
-                                   Lock_u, Lock_f, Lock_t, Lock, Stack_, Node_, 
-                                   Stack, Node_w, Node, Counter_ >>
+p(self) == LOOP(self) \/ CS(self) \/ UNLOCK(self) \/ COUNT(self)
 
-p(self) == LOCK(self) \/ LOOP(self) \/ CS(self) \/ UNLOCK(self)
-              \/ COUNT(self) \/ DEBUG_END(self)
-
-Next == (\E self \in ProcSet:  \/ lock(self) \/ unlock(self) \/ flush(self)
-                               \/ try_acquire(self) \/ release(self)
-                               \/ push(self) \/ pop(self) \/ wait(self)
-                               \/ signal(self))
+Next == (\E self \in ProcSet: lock(self) \/ unlock(self) \/ flush(self))
            \/ (\E self \in 1..NUM_PROCESSES: p(self))
            \/ (* Disjunct to prevent deadlock on termination *)
               ((\A self \in ProcSet: pc[self] = "Done") /\ UNCHANGED vars)
 
 Spec == /\ Init /\ [][Next]_vars
-        /\ WF_vars(Next)
-        /\ \A self \in 1..NUM_PROCESSES : /\ SF_vars(p(self))
-                                          /\ SF_vars(lock(self))
-                                          /\ SF_vars(unlock(self))
-                                          /\ SF_vars(flush(self))
-                                          /\ SF_vars(try_acquire(self))
-                                          /\ SF_vars(release(self))
-                                          /\ SF_vars(push(self))
-                                          /\ SF_vars(pop(self))
-                                          /\ SF_vars(wait(self))
-                                          /\ SF_vars(signal(self))
+        /\ \A self \in 1..NUM_PROCESSES : /\ WF_vars(p(self))
+                                          /\ WF_vars(lock(self))
+                                          /\ WF_vars(unlock(self))
+                                          /\ WF_vars(flush(self))
 
 Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
