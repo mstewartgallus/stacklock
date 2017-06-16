@@ -119,6 +119,7 @@ impl QLock {
         }
 
         let mut counter = 0usize;
+        let mut yield_counter = 0usize;
         loop {
             let acquired;
             {
@@ -158,7 +159,10 @@ impl QLock {
                 return;
             }
 
-            backoff::yield_now();
+            let interval = 8;
+            if yield_counter % interval == interval - 1 {
+                backoff::yield_now();
+            }
 
             let spins = backoff::thread_num(1, 1 << counter);
 
@@ -167,6 +171,7 @@ impl QLock {
             if counter < 4 {
                 counter = counter.wrapping_add(1);
             }
+            yield_counter = yield_counter.wrapping_add(1);
         }
     }
 }
