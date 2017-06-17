@@ -344,7 +344,7 @@ mod log {
     }
     pub fn push_event(stack: *const Stack, node: *const Node) -> PushEvent {
         let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :Type :invoke, :f :push}}", id).unwrap());
+        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :push}}", id).unwrap());
         PushEvent {
             id: id,
             stack: stack,
@@ -407,7 +407,7 @@ mod log {
         pub fn complete(self) {
             get_log(|log| {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :wait, :value {{ :node, {:?} }} }}",
+                         "{{:process {}, :type :ok, :f :wait, :value {{ :node {:?} }} }}",
                          self.id,
                          self.node)
                     .unwrap()
