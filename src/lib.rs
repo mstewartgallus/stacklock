@@ -268,6 +268,8 @@ mod log {
 
 #[cfg(feature = "lin-log")]
 mod log {
+    use libc;
+
     use stack::{Node, Stack};
     use mutex::RawMutex;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -275,15 +277,34 @@ mod log {
     use std::fs::File;
     use std::io::{Write, BufWriter};
 
+    extern "C" fn on_exit() {
+        *LOG_FILE.lock().unwrap() = None;
+    }
+
     lazy_static! {
-        static ref LOG_FILE: Mutex<BufWriter<File>> = {
+        static ref LOG_FILE: Mutex<Option<BufWriter<File>>> = {
             let file = File::create("linearizability.log").expect("cannot open file");
-            Mutex::new(BufWriter::new(file))
+            let mutex = Mutex::new(Some(BufWriter::new(file)));
+            unsafe {
+                libc::atexit(on_exit);
+            }
+            mutex
         };
 
         static ref EVENT_COUNTER: AtomicU64 = {
             AtomicU64::new(0)
         };
+    }
+
+    fn get_log<F>(f: F)
+        where F: FnOnce(&mut BufWriter<File>)
+    {
+        match *LOG_FILE.lock().unwrap() {
+            Some(ref mut x) => {
+                f(x);
+            }
+            None => unreachable!(),
+        }
     }
 
     fn get_id() -> u64 {
@@ -292,152 +313,179 @@ mod log {
 
     pub struct EmptyEvent {
         id: u64,
+        stack: *const Stack,
     }
-    pub fn empty_event(stack_ptr: *const Stack) -> EmptyEvent {
+    pub fn empty_event(stack: *const Stack) -> EmptyEvent {
         let id = get_id();
-        writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{{:process {}, :type :invoke, :f :empty, :value {:?} }}",
-                 id,
-                 stack_ptr)
-            .unwrap();
-        EmptyEvent { id: id }
+        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :empty}}", id).unwrap());
+        EmptyEvent {
+            id: id,
+            stack: stack,
+        }
     }
     impl EmptyEvent {
         pub fn complete(self, was_empty: bool) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "{{:process {}, :type :ok, :f :empty, :value {} }}",
-                     self.id,
-                     was_empty)
-                .unwrap();
+            get_log(|log| {
+                writeln!(log,
+                         "{{:process {}, :type :ok, :f :empty, :value {{ :stack {:?}, :was_empty \
+                          {} }} }}",
+                         self.id,
+                         self.stack,
+                         was_empty)
+                    .unwrap()
+            });
         }
     }
 
     pub struct PushEvent {
         id: u64,
+        stack: *const Stack,
+        node: *const Node,
     }
-    pub fn push_event(stack_ptr: *const Stack, node: *const Node) -> PushEvent {
+    pub fn push_event(stack: *const Stack, node: *const Node) -> PushEvent {
         let id = get_id();
-        writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{{:process {}, :type :invoke, :f :push, :value (list {:?} {:?})}}",
-                 id,
-                 stack_ptr,
-                 node)
-            .unwrap();
-        PushEvent { id: id }
+        get_log(|log| writeln!(log, "{{:process {}, :Type :invoke, :f :push}}", id).unwrap());
+        PushEvent {
+            id: id,
+            stack: stack,
+            node: node,
+        }
     }
     impl PushEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "{{:process {}, :type :ok, :f :push, :value (list)}}",
-                     self.id)
-                .unwrap();
+            get_log(|log| {
+                writeln!(log,
+                         "{{:process {}, :type :ok, :f :push, :value {{ :stack {:?}, :node {:?} \
+                          }} }}",
+                         self.id,
+                         self.stack,
+                         self.node)
+                    .unwrap()
+            });
         }
     }
 
     pub struct PopEvent {
         id: u64,
+        stack: *const Stack,
     }
-    pub fn pop_event(stack_ptr: *const Stack) -> PopEvent {
+    pub fn pop_event(stack: *const Stack) -> PopEvent {
         let id = get_id();
-        writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{{:process {}, :type :invoke, :f :pop, :value {:?}}}",
-                 id,
-                 stack_ptr)
-            .unwrap();
-        PopEvent { id: id }
+        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :pop}}", id).unwrap());
+        PopEvent {
+            id: id,
+            stack: stack,
+        }
     }
     impl PopEvent {
         pub fn complete(self, popped: *const Node) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "{{:process {}, :type :ok, :f :pop, :value {:?}}}",
-                     self.id,
-                     popped)
-                .unwrap();
+            get_log(|log| {
+                writeln!(log,
+                         "{{:process {}, :type :ok, :f :pop, :value {{ :stack {:?}, :popped {:?} \
+                          }} }}",
+                         self.id,
+                         self.stack,
+                         popped)
+                    .unwrap()
+            });
         }
     }
 
     pub struct WaitEvent {
         id: u64,
+        node: *const Node,
     }
-    pub fn wait_event(node_ptr: *const Node) -> WaitEvent {
+    pub fn wait_event(node: *const Node) -> WaitEvent {
         let id = get_id();
-        writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{{:process {}, :type :invoke, :f :wait, :value {:?}}}",
-                 id,
-                 node_ptr)
-            .unwrap();
-        WaitEvent { id: id }
+        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :wait}}", id).unwrap());
+        WaitEvent {
+            id: id,
+            node: node,
+        }
     }
     impl WaitEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "{{:process {}, :type :ok, :f :wait, :value (list)}}",
-                     self.id)
-                .unwrap();
+            get_log(|log| {
+                writeln!(log,
+                         "{{:process {}, :type :ok, :f :wait, :value {{ :node, {:?} }} }}",
+                         self.id,
+                         self.node)
+                    .unwrap()
+            });
         }
     }
 
     pub struct SignalEvent {
         id: u64,
+        node: *const Node,
     }
-    pub fn signal_event(node_ptr: *const Node) -> SignalEvent {
+    pub fn signal_event(node: *const Node) -> SignalEvent {
         let id = get_id();
-        writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{{:process {}, :type :invoke, :f :signal, :value {:?}}}",
-                 id,
-                 node_ptr)
-            .unwrap();
-        SignalEvent { id: id }
+        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :signal}}", id).unwrap());
+        SignalEvent {
+            id: id,
+            node: node,
+        }
     }
     impl SignalEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "{{:process {}, :type :ok, :f :signal, :value (list)}}",
-                     self.id)
-                .unwrap();
+            get_log(|log| {
+                writeln!(log,
+                         "{{:process {}, :type :ok, :f :signal, :value {{ :node {:?} }} }}",
+                         self.id,
+                         self.node)
+                    .unwrap()
+            });
         }
     }
 
     pub struct TryAcquireEvent {
         id: u64,
+        mutex: *const RawMutex,
     }
-    pub fn try_acquire_event(mutex_ptr: *const RawMutex) -> TryAcquireEvent {
+    pub fn try_acquire_event(mutex: *const RawMutex) -> TryAcquireEvent {
         let id = get_id();
-        writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{{:process {}, :type :invoke, :f :try_acquire, :value {:?}}}",
-                 id,
-                 mutex_ptr)
-            .unwrap();
-        TryAcquireEvent { id: id }
+        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :try_acquire}}", id).unwrap());
+        TryAcquireEvent {
+            id: id,
+            mutex: mutex,
+        }
     }
     impl TryAcquireEvent {
         pub fn complete(self, acquired: bool) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "{{:process {}, :type :ok, :f :try_acquire, :value {}}}",
-                     self.id,
-                     acquired)
-                .unwrap();
+            get_log(|log| {
+                writeln!(log,
+                         "{{:process {}, :type :ok, :f :try_acquire, :value {{ :mutex {:?}, \
+                          :acquired {} }}}}",
+                         self.id,
+                         self.mutex,
+                         acquired)
+                    .unwrap()
+            });
         }
     }
 
     pub struct ReleaseEvent {
         id: u64,
+        mutex: *const RawMutex,
     }
-    pub fn release_event(mutex_ptr: *const RawMutex) -> ReleaseEvent {
+    pub fn release_event(mutex: *const RawMutex) -> ReleaseEvent {
         let id = get_id();
-        writeln!(&mut *LOG_FILE.lock().unwrap(),
-                 "{{:process {}, :type :invoke, :f :release, :value {:?}}}",
-                 id,
-                 mutex_ptr)
-            .unwrap();
-        ReleaseEvent { id: id }
+        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :release}}", id).unwrap());
+        ReleaseEvent {
+            id: id,
+            mutex: mutex,
+        }
     }
     impl ReleaseEvent {
         pub fn complete(self) {
-            writeln!(&mut *LOG_FILE.lock().unwrap(),
-                     "{{:process {}, :type :ok, :f :release, :value (list)}}",
-                     self.id)
-                .unwrap();
+            get_log(|log| {
+                writeln!(log,
+                         "{{:process {}, :type :ok, :f :release, :value {{ :mutex {:?} }} }}",
+                         self.id,
+                         self.mutex)
+                    .unwrap()
+            });
         }
     }
 }
