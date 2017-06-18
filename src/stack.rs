@@ -17,8 +17,10 @@ use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
-use qlock_util::backoff;
+use backoff;
 use dontshare::DontShare;
+use weakrand;
+
 use notifier::Notifier;
 
 static mut DUMMY_NODE: Node = Node::new_uninit();
@@ -167,7 +169,7 @@ impl Stack {
             } else {
                 1 << MAX_EXP
             };
-            let spins = backoff::thread_num(1, exp);
+            let spins = weakrand::rand(1, exp);
 
             backoff::pause_times(spins);
         }
@@ -210,7 +212,7 @@ impl Stack {
                 } else {
                     1 << MAX_EXP
                 };
-                let spins = backoff::thread_num(1, exp);
+                let spins = weakrand::rand(1, exp);
 
                 backoff::pause_times(spins);
             }

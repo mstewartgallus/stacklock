@@ -1,12 +1,12 @@
 #![feature(asm)]
 #![feature(integer_atomics)]
 extern crate criterion;
-extern crate qlock_util;
+extern crate backoff;
 extern crate dontshare;
+extern crate weakrand;
 
 mod contend;
 
-use qlock_util::backoff;
 use dontshare::DontShare;
 
 use criterion::Criterion;
@@ -62,7 +62,7 @@ impl Hle {
                 counter = counter.wrapping_add(1);
             }
 
-            backoff::pause_times(backoff::thread_num(1, exp));
+            backoff::pause_times(weakrand::rand(1, exp));
 
             if self.val.load(Ordering::Relaxed) == 0 {
                 let mut prev: u32 = 1;

@@ -20,8 +20,9 @@ use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 
-use qlock_util::backoff;
+use backoff;
 use dontshare::DontShare;
+use weakrand;
 
 const YIELD_INTERVAL: usize = 8;
 const MAX_EXP: usize = 8;
@@ -83,7 +84,7 @@ impl Notifier {
                     }
 
                     // Unroll the loop for better performance
-                    let spins = backoff::thread_num(1, exp);
+                    let spins = weakrand::rand(1, exp);
 
                     backoff::pause_times(spins);
 

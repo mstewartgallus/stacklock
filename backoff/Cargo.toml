@@ -1,5 +1,5 @@
 [package]
-name = "qlock_util"
+name = "backoff"
 version = "0.1.0"
 authors = ["Steven Stewart-Gallus <sstewartgallus00@mylangara.bc.ca>"]
 repository = "https://sstewartgallus.com/git?p=uevents-rs.git;a=summary"
@@ -10,5 +10,3 @@ categories = ["concurrency", "data-structures"]
 nightly = []
 
 [dependencies]
-rand = "0.3"
-syscall = "0.2"

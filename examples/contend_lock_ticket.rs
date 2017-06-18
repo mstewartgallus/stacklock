@@ -2,16 +2,16 @@
 
 #[macro_use]
 extern crate syscall;
-extern crate qlock_util;
+extern crate backoff;
 extern crate criterion;
 extern crate dontshare;
+extern crate weakrand;
 
 mod contend;
 
 use criterion::Criterion;
 
 use dontshare::DontShare;
-use qlock_util::backoff;
 
 use std::mem;
 use std::sync::Arc;
@@ -74,7 +74,7 @@ impl Ticket {
                 } else {
                     exp = 1 << counter;
                 }
-                backoff::pause_times(backoff::thread_num(1, exp));
+                backoff::pause_times(weakrand::rand(1, exp));
                 counter = counter.wrapping_add(1);
             }
 

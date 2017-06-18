@@ -26,17 +26,16 @@ extern crate syscall;
 
 extern crate libc;
 
-extern crate qlock_util;
+extern crate backoff;
 
 extern crate dontshare;
+extern crate weakrand;
 
 mod mutex;
 mod stack;
 mod notifier;
 
 use std::thread;
-
-use qlock_util::backoff;
 
 use stack::{Node, Stack, dummy_node};
 use mutex::RawMutex;
@@ -104,7 +103,7 @@ impl QLock {
             }
             thread::yield_now();
 
-            let spins = backoff::thread_num(1, 1 << counter);
+            let spins = weakrand::rand(1, 1 << counter);
 
             backoff::pause_times(spins);
 
@@ -169,7 +168,7 @@ impl QLock {
                 thread::yield_now();
             }
 
-            let spins = backoff::thread_num(1, 1 << counter);
+            let spins = weakrand::rand(1, 1 << counter);
 
             backoff::pause_times(spins);
 
@@ -237,7 +236,7 @@ mod log {
     use stack::{Node, Stack};
     use mutex::RawMutex;
 
-    use qlock_util::backoff;
+    use weakrand;
 
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex};
@@ -458,7 +457,7 @@ mod log {
         LOCAL_BUF.with(|x| unsafe {
             let buf = &mut *x.cell.get();
             event.push(buf);
-            if 0 == backoff::thread_num(0, 4000) {
+            if 0 == weakrand::rand(0, 4000) {
                 do_log(buf);
             }
         });

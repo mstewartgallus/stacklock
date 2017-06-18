@@ -6,15 +6,15 @@ extern crate criterion;
 #[macro_use]
 extern crate syscall;
 
-extern crate qlock_util;
+extern crate backoff;
 extern crate dontshare;
+extern crate weakrand;
 
 use criterion::Criterion;
 
 mod contend;
 
 use dontshare::DontShare;
-use qlock_util::backoff;
 
 use std::mem;
 use std::sync::Arc;
@@ -25,7 +25,7 @@ use std::thread;
 use contend::{TestCase, contend};
 
 const NUM_LOOPS: usize = 30;
-const NUM_PAUSES: usize = 20;
+const NUM_PAUSES: u64 = 20;
 
 struct Futex {
     val: DontShare<AtomicU32>,
@@ -64,7 +64,7 @@ impl Futex {
         loop {
             let mut counter = NUM_LOOPS;
             loop {
-                let mut inner_counter = backoff::thread_num(0, NUM_PAUSES);
+                let mut inner_counter = weakrand::rand(0, NUM_PAUSES);
                 loop {
                     if self.val.load(Ordering::Relaxed) != 2 {
                         result = self.val.swap(2, Ordering::Release);
