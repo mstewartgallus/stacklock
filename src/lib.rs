@@ -357,6 +357,7 @@ mod log {
     unsafe impl Sync for BufCell {}
     unsafe impl Send for BufCell {}
 
+    static TID_COUNTER: AtomicU32 = AtomicU32::new(0);
     static EVENT_COUNTER: AtomicU32 = AtomicU32::new(0);
 
     lazy_static! {
@@ -373,6 +374,10 @@ mod log {
     }
 
     thread_local! {
+        static TID: u32 = {
+            TID_COUNTER.fetch_add(1, Ordering::Relaxed)
+        };
+
         static LOCAL_BUF: Arc<BufCell> = {
             let buf = Arc::new(BufCell { cell: UnsafeCell::new(Buf {
                 push_buf: Vec::new(),
@@ -454,8 +459,8 @@ mod log {
         });
     }
 
-    fn get_id() -> libc::pthread_t {
-        unsafe { libc::pthread_self() }
+    fn get_id() -> u32 {
+        TID.with(|x| *x)
     }
 
     trait Event {
@@ -466,16 +471,16 @@ mod log {
     #[derive(Clone, Copy)]
     struct Push {
         ts: u32,
-        id: libc::pthread_t,
+        id: u32,
         stack: *const Stack,
         node: *const Node,
     }
     impl Event for Push {
         fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :push }} \n{{:ts {ts}, \
-                      :process {id:?}, :type :ok, :f :push, :value {{ :stack {stack:?}, \
-                      :node {node:?} }} }}",
+                     "{{:ts {ts},:process 0x{id:x},:type :invoke,:f :push }}\n{{:ts {ts},\
+                      :process 0x{id:x},:type :ok,:f :push,:value{{:stack {stack:?},\
+                      :node {node:?}}}}}",
                      ts = self.ts,
                      id = self.id,
                      stack = self.stack,
@@ -491,16 +496,16 @@ mod log {
     #[derive(Clone, Copy)]
     struct Pop {
         ts: u32,
-        id: libc::pthread_t,
+        id: u32,
         stack: *const Stack,
         popped: *const Node,
     }
     impl Event for Pop {
         fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :pop }} \n{{:ts {ts}, \
-                      :process {id:?}, :type :ok, :f :pop, :value {{ :stack {stack:?}, \
-                      :popped {popped:?} }} }}",
+                     "{{:ts {ts},:process 0x{id:x},:type :invoke,:f :pop}}\n{{:ts {ts},\
+                      :process 0x{id:x},:type :ok,:f :pop,:value{{:stack {stack:?},\
+                      :popped {popped:?}}}}}",
                      ts = self.ts,
                      id = self.id,
                      stack = self.stack,
@@ -516,14 +521,14 @@ mod log {
     #[derive(Clone, Copy)]
     struct Wait {
         ts: u32,
-        id: libc::pthread_t,
+        id: u32,
         node: *const Node,
     }
     impl Event for Wait {
         fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :wait }}\n{{:ts {ts}, \
-                      :process {id:?}, :type :ok, :f :wait, :value {{ :node {node:?} }} }}",
+                     "{{:ts {ts},:process 0x{id:x},:type :invoke,:f :wait}}\n{{:ts {ts},\
+                      :process 0x{id:x},:type :ok,:f :wait,:value{{:node {node:?}}}}}",
                      ts = self.ts,
                      id = self.id,
                      node = self.node)
@@ -537,16 +542,16 @@ mod log {
     #[derive(Clone, Copy)]
     struct Empty {
         ts: u32,
-        id: libc::pthread_t,
+        id: u32,
         stack: *const Stack,
         was_empty: bool,
     }
     impl Event for Empty {
         fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :empty }}\n {{:ts {ts}, \
-                      :process {id:?}, :type :ok, :f :empty, :value {{ :stack {stack:?}, \
-                      :was_empty {was_empty} }} }}",
+                     "{{:ts {ts},:process 0x{id:x},:type :invoke,:f :empty}}\n{{:ts {ts},\
+                      :process 0x{id:x},:type :ok,:f :empty,:value{{:stack {stack:?},\
+                      :was_empty {was_empty}}}}}",
                      ts = self.ts,
                      id = self.id,
                      stack = self.stack,
@@ -562,15 +567,15 @@ mod log {
     #[derive(Clone, Copy)]
     struct Signal {
         ts: u32,
-        id: libc::pthread_t,
+        id: u32,
         node: *const Node,
     }
     impl Event for Signal {
         fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :signal }}\n{{:ts \
-                      {ts}, :process {id:?}, :type :ok, :f :signal, :value {{ :node \
-                      {node:?} }} }}",
+                     "{{:ts {ts},:process 0x{id:x},:type :invoke,:f :signal}}\n{{:ts \
+                      {ts},:process 0x{id:x},:type :ok,:f :signal,:value{{:node \
+                      {node:?}}}}}",
                      ts = self.ts,
                      id = self.id,
                      node = self.node)
@@ -585,16 +590,16 @@ mod log {
     #[derive(Clone, Copy)]
     struct TryAcquire {
         ts: u32,
-        id: libc::pthread_t,
+        id: u32,
         mutex: *const RawMutex,
         acquired: bool,
     }
     impl Event for TryAcquire {
         fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :try_acquire }}\n{{:ts \
-                      {ts}, :process {id:?}, :type :ok, :f :try_acquire, :value {{ :mutex \
-                      {mutex:?}, :acquired {acquired} }}}}",
+                     "{{:ts {ts},:process 0x{id:x},:type :invoke,:f :try_acquire}}\n{{:ts \
+                      {ts},:process 0x{id:x},:type :ok,:f :try_acquire,:value{{:mutex \
+                      {mutex:?},:acquired {acquired}}}}}",
                      ts = self.ts,
                      id = self.id,
                      mutex = self.mutex,
@@ -609,15 +614,15 @@ mod log {
     #[derive(Clone, Copy)]
     struct Release {
         ts: u32,
-        id: libc::pthread_t,
+        id: u32,
         mutex: *const RawMutex,
     }
     impl Event for Release {
         fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :release }}\n{{:ts \
-                      {ts}, :process {id:?}, :type :ok, :f :release, :value {{ :mutex \
-                      {mutex:?} }} }}",
+                     "{{:ts {ts},:process 0x{id:x},:type :invoke,:f :release}}\n{{:ts \
+                      {ts},:process 0x{id:x},:type :ok,:f :release,:value{{:mutex \
+                      {mutex:?}}}}}",
                      ts = self.ts,
                      id = self.id,
                      mutex = self.mutex)
