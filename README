@@ -1,5 +1,5 @@
 This is the README file for the qlock distribution.
-qlock is a library for MCS queue locks in Rust
+qlock is a library for a novel type of queue locks in Rust
 
   Copyright (C) 2017 Steven Stewart-Gallus
 
@@ -7,8 +7,28 @@ qlock is a library for MCS queue locks in Rust
   are permitted in any medium without royalty provided the copyright
   notice and this notice are preserved.
 
+To make some code faster some people invented spin locks where instead
+of delving into the OS threads spin on a memory location.  However,
+this can be slow on manycore machines.  For improved performance the
+CLH and MCS queue locks were invented.  Instead of one memory location
+multiple are used.  This novel algorithm uses a similar idea but
+instead uses an easily slottable datastructure.  Currently, the code
+uses a stack.
+
+So far performance numbers are ok.  GLibc's mutexes are twice as slow.
+The parking_lot crate is twice as faster.  Naive futexes and HLE
+implementations are slower.
+
+To investigate correctness of the algorithm three means are used.
+First, a test-suite.  Second, a TLA+ approximation of the algorithm is
+used to exhaustively check for correctness under a small number of
+threads.  Third, a configuration is made that logs a history of
+transactions to a file which can then be checked for linearizability
+by a system such as Knossos.
+
+
 qlock is licensed under the Apache License, Version 2.0 (the
-"License"); you may not use uevents except in compliance with
+"License"); you may not use qlock except in compliance with
 the License. You may obtain a copy of the License at
 
      http://www.apache.org/licenses/LICENSE-2.0
