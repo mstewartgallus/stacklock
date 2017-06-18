@@ -209,7 +209,6 @@ mod log {
     use stack::{Node, Stack};
     use mutex::RawMutex;
 
-
     pub fn get_ts() -> Ts {
         Ts
     }
@@ -232,6 +231,9 @@ mod log {
 
     use stack::{Node, Stack};
     use mutex::RawMutex;
+
+    use qlock_util::backoff;
+
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use std::fs::File;
@@ -347,20 +349,27 @@ mod log {
         };
     }
 
+    #[cold]
+    fn do_log(buf: &mut Vec<Event>) {
+        if let Ok(mut log) = LOG_FILE.try_lock() {
+            match *log {
+                Some(ref mut x) => {
+                    for &event in buf.iter() {
+                        log_event(x, event);
+                    }
+                    buf.clear();
+                }
+                None => unreachable!(),
+            }
+        }
+    }
+
     fn log(event: Event) {
         LOCAL_BUF.with(|x| unsafe {
             let buf = &mut *x.cell.get();
             buf.buf.push(event);
-            if buf.buf.len() > 1000 {
-                match *LOG_FILE.lock().unwrap() {
-                    Some(ref mut x) => {
-                        for &event in buf.buf.iter() {
-                            log_event(x, event);
-                        }
-                        buf.buf.clear();
-                    }
-                    None => unreachable!(),
-                }
+            if 0 == backoff::thread_num(0, 4000) {
+                do_log(&mut buf.buf);
             }
         });
     }
@@ -406,107 +415,74 @@ mod log {
 
     fn log_event(log: &mut BufWriter<File>, event: Event) {
         match event {
-            Event::Empty { ts, id, stack, was_empty } => {
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :invoke, :f :empty }}",
-                         ts,
-                         id)
-                    .unwrap();
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :ok, :f :empty, :value {{ :stack {:?}, \
-                          :was_empty {} }} }}",
-                         ts,
-                         id,
-                         stack,
-                         was_empty)
-                    .unwrap()
-            }
+                Event::Empty { ts, id, stack, was_empty } => {
+                    writeln!(log,
+                             "{{:ts {ts}, :process {id}, :type :invoke, :f :empty }}\n {{:ts \
+                              {ts}, :process {id}, :type :ok, :f :empty, :value {{ :stack \
+                              {stack:?}, :was_empty {was_empty} }} }}",
+                             ts = ts,
+                             id = id,
+                             stack = stack,
+                             was_empty = was_empty)
+                }
 
-            Event::Push { ts, id, stack, node } => {
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :invoke, :f :push }}",
-                         ts,
-                         id)
-                    .unwrap();
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :ok, :f :push, :value {{ :stack {:?}, \
-                          :node {:?} }} }}",
-                         ts,
-                         id,
-                         stack,
-                         node)
-                    .unwrap()
+                Event::Push { ts, id, stack, node } => {
+                    writeln!(log,
+                             "{{:ts {ts}, :process {id}, :type :invoke, :f :push }} \n{{:ts {ts}, \
+                              :process {id}, :type :ok, :f :push, :value {{ :stack {stack:?}, \
+                              :node {node:?} }} }}",
+                             ts = ts,
+                             id = id,
+                             stack = stack,
+                             node = node)
+                }
+                Event::Pop { ts, id, stack, popped } => {
+                    writeln!(log,
+                             "{{:ts {ts}, :process {id}, :type :invoke, :f :pop }} \n{{:ts {ts}, \
+                              :process {id}, :type :ok, :f :pop, :value {{ :stack {stack:?}, \
+                              :popped {popped:?} }} }}",
+                             ts = ts,
+                             id = id,
+                             stack = stack,
+                             popped = popped)
+                }
+                Event::Wait { ts, id, node } => {
+                    writeln!(log,
+                             "{{:ts {ts}, :process {id}, :type :invoke, :f :wait }}\n{{:ts {ts}, \
+                              :process {id}, :type :ok, :f :wait, :value {{ :node {node:?} }} }}",
+                             ts = ts,
+                             id = id,
+                             node = node)
+                }
+                Event::Signal { ts, id, node } => {
+                    writeln!(log,
+                             "{{:ts {ts}, :process {id}, :type :invoke, :f :signal }}\n{{:ts \
+                              {ts}, :process {id}, :type :ok, :f :signal, :value {{ :node \
+                              {node:?} }} }}",
+                             ts = ts,
+                             id = id,
+                             node = node)
+                }
+                Event::TryAcquire { ts, id, mutex, acquired } => {
+                    writeln!(log,
+                             "{{:ts {ts}, :process {id}, :type :invoke, :f :try_acquire }}\n{{:ts \
+                              {ts}, :process {id}, :type :ok, :f :try_acquire, :value {{ :mutex \
+                              {mutex:?}, :acquired {acquired} }}}}",
+                             ts = ts,
+                             id = id,
+                             mutex = mutex,
+                             acquired = acquired)
+                }
+                Event::Release { ts, id, mutex } => {
+                    writeln!(log,
+                             "{{:ts {ts}, :process {id}, :type :invoke, :f :release }}\n{{:ts \
+                              {ts}, :process {id}, :type :ok, :f :release, :value {{ :mutex \
+                              {mutex:?} }} }}",
+                             ts = ts,
+                             id = id,
+                             mutex = mutex)
+                }
             }
-            Event::Pop { ts, id, stack, popped } => {
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :invoke, :f :pop }}",
-                         ts,
-                         id)
-                    .unwrap();
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :ok, :f :pop, :value {{ :stack {:?}, \
-                          :popped {:?} }} }}",
-                         ts,
-                         id,
-                         stack,
-                         popped)
-                    .unwrap()
-            }
-            Event::Wait { ts, id, node } => {
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :invoke, :f :wait }}",
-                         ts,
-                         id)
-                    .unwrap();
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :ok, :f :wait, :value {{ :node {:?} }} }}",
-                         ts,
-                         id,
-                         node)
-                    .unwrap()
-            }
-            Event::Signal { ts, id, node } => {
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :invoke, :f :signal }}",
-                         ts,
-                         id)
-                    .unwrap();
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :ok, :f :signal, :value {{ :node {:?} }} }}",
-                         ts,
-                         id,
-                         node)
-                    .unwrap()
-            }
-            Event::TryAcquire { ts, id, mutex, acquired } => {
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :invoke, :f :try_acquire }}",
-                         ts,
-                         id)
-                    .unwrap();
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :ok, :f :try_acquire, :value {{ :mutex \
-                          {:?}, :acquired {} }}}}",
-                         ts,
-                         id,
-                         mutex,
-                         acquired)
-                    .unwrap()
-            }
-            Event::Release { ts, id, mutex } => {
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :invoke, :f :release }}",
-                         ts,
-                         id)
-                    .unwrap();
-                writeln!(log,
-                         "{{:ts {}, :process {}, :type :ok, :f :release, :value {{ :mutex {:?} }} \
-                          }}",
-                         ts,
-                         id,
-                         mutex)
-                    .unwrap()
-            }
-        }
+            .unwrap()
     }
 }
