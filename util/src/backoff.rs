@@ -42,28 +42,28 @@ pub fn pause_times(spins: usize) {
                                     4 => break 'do_4,
                                     5 => break 'do_5,
                                     6 => break 'do_6,
-                                    7 => {},
-                                    _ => unreachable!()
+                                    7 => {}
+                                    _ => unreachable!(),
                                 }
-                                    atomic::hint_core_should_pause();
+                                atomic::hint_core_should_pause();
                                 break;
                             }
-                                atomic::hint_core_should_pause();
+                            atomic::hint_core_should_pause();
                             break;
                         }
-                            atomic::hint_core_should_pause();
+                        atomic::hint_core_should_pause();
                         break;
                     }
-                        atomic::hint_core_should_pause();
+                    atomic::hint_core_should_pause();
                     break;
                 }
-                    atomic::hint_core_should_pause();
+                atomic::hint_core_should_pause();
                 break;
             }
-                atomic::hint_core_should_pause();
+            atomic::hint_core_should_pause();
             break;
         }
-            atomic::hint_core_should_pause();
+        atomic::hint_core_should_pause();
         break;
     }
 
@@ -77,19 +77,22 @@ pub fn pause_times(spins: usize) {
         }
 
         for _ in 0..unroll {
-                atomic::hint_core_should_pause();
+            atomic::hint_core_should_pause();
         }
     }
 }
 
 struct Rng {
     init: bool,
-    state: u64
+    state: u64,
 }
 
 // Use MMIX RNG
 #[thread_local]
-static mut RNG: Rng = Rng { init: false, state: 0 };
+static mut RNG: Rng = Rng {
+    init: false,
+    state: 0,
+};
 
 #[cold]
 fn init() -> u64 {
