@@ -238,10 +238,11 @@ mod log {
     use std::sync::{Arc, Mutex};
     use std::fs::File;
     use std::cell::UnsafeCell;
+    use std::io;
     use std::io::{Write, BufWriter};
 
     pub fn get_ts() -> Ts {
-        Ts { time: EVENT_COUNTER.fetch_add(1, Ordering::Relaxed) }
+        Ts { time: EVENT_COUNTER.fetch_add(1, Ordering::Acquire) }
     }
 
     #[must_use]
@@ -311,27 +312,30 @@ mod log {
             let mut log_file = (*LOG_FILE.lock().unwrap()).take().unwrap();
             for buf_cell in list.iter() {
                 let buf = &mut *buf_cell.cell.get();
+
+                let mut mem_buf = MemBuf { vec: Vec::new() };
                 for event in buf.push_buf.iter() {
-                    event.log(&mut log_file);
+                    event.log(&mut mem_buf);
                 }
                 for event in buf.pop_buf.iter() {
-                    event.log(&mut log_file);
+                    event.log(&mut mem_buf);
                 }
                 for event in buf.wait_buf.iter() {
-                    event.log(&mut log_file);
+                    event.log(&mut mem_buf);
                 }
                 for event in buf.empty_buf.iter() {
-                    event.log(&mut log_file);
+                    event.log(&mut mem_buf);
                 }
                 for event in buf.signal_buf.iter() {
-                    event.log(&mut log_file);
+                    event.log(&mut mem_buf);
                 }
                 for event in buf.try_acquire_buf.iter() {
-                    event.log(&mut log_file);
+                    event.log(&mut mem_buf);
                 }
                 for event in buf.release_buf.iter() {
-                    event.log(&mut log_file);
+                    event.log(&mut mem_buf);
                 }
+                log_file.write(mem_buf.vec.as_ref()).unwrap();
             }
         }
     }
@@ -344,6 +348,7 @@ mod log {
         signal_buf: Vec<Signal>,
         try_acquire_buf: Vec<TryAcquire>,
         release_buf: Vec<Release>,
+        str_buf: MemBuf,
     }
 
     struct BufCell {
@@ -376,50 +381,67 @@ mod log {
                 empty_buf: Vec::new(),
                 signal_buf: Vec::new(),
                 try_acquire_buf: Vec::new(),
-                release_buf: Vec::new()
+                release_buf: Vec::new(),
+                str_buf: MemBuf { vec: Vec::new() }
             }) });
             BUF_LIST.lock().unwrap().push(buf.clone());
             buf
         };
     }
+    struct MemBuf {
+        vec: Vec<u8>,
+    }
+    impl Write for MemBuf {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.vec.extend_from_slice(buf);
+            return Ok(buf.len());
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[cold]
     fn do_log(buf: &mut Buf) {
-        if let Ok(mut log) = LOG_FILE.try_lock() {
+        for event in buf.push_buf.iter() {
+            event.log(&mut buf.str_buf);
+        }
+        for event in buf.pop_buf.iter() {
+            event.log(&mut buf.str_buf);
+        }
+        for event in buf.wait_buf.iter() {
+            event.log(&mut buf.str_buf);
+        }
+        for event in buf.empty_buf.iter() {
+            event.log(&mut buf.str_buf);
+        }
+        for event in buf.signal_buf.iter() {
+            event.log(&mut buf.str_buf);
+        }
+        for event in buf.try_acquire_buf.iter() {
+            event.log(&mut buf.str_buf);
+        }
+        for event in buf.release_buf.iter() {
+            event.log(&mut buf.str_buf);
+        }
+        buf.push_buf.clear();
+        buf.pop_buf.clear();
+        buf.wait_buf.clear();
+        buf.empty_buf.clear();
+        buf.signal_buf.clear();
+        buf.try_acquire_buf.clear();
+        buf.release_buf.clear();
+
+        if let Ok(mut log) = LOG_FILE.lock() {
             match *log {
                 Some(ref mut x) => {
-                    for event in buf.push_buf.iter() {
-                        event.log(x);
-                    }
-                    for event in buf.pop_buf.iter() {
-                        event.log(x);
-                    }
-                    for event in buf.wait_buf.iter() {
-                        event.log(x);
-                    }
-                    for event in buf.empty_buf.iter() {
-                        event.log(x);
-                    }
-                    for event in buf.signal_buf.iter() {
-                        event.log(x);
-                    }
-                    for event in buf.try_acquire_buf.iter() {
-                        event.log(x);
-                    }
-                    for event in buf.release_buf.iter() {
-                        event.log(x);
-                    }
-                    buf.push_buf.clear();
-                    buf.pop_buf.clear();
-                    buf.wait_buf.clear();
-                    buf.empty_buf.clear();
-                    buf.signal_buf.clear();
-                    buf.try_acquire_buf.clear();
-                    buf.release_buf.clear();
+                    x.write(buf.str_buf.vec.as_ref()).unwrap();
                 }
                 None => unreachable!(),
             }
         }
+        buf.str_buf.vec.clear();
     }
 
     fn log<T: Event>(event: T) {
@@ -432,27 +454,27 @@ mod log {
         });
     }
 
-    fn get_id() -> u32 {
-        unsafe { syscall!(GETTID) as u32 }
+    fn get_id() -> libc::pthread_t {
+        unsafe { libc::pthread_self() }
     }
 
     trait Event {
-        fn log(&self, file: &mut BufWriter<File>);
+        fn log<B: Write>(&self, log: &mut B);
         fn push(&self, buf: &mut Buf);
     }
 
     #[derive(Clone, Copy)]
     struct Push {
         ts: u32,
-        id: u32,
+        id: libc::pthread_t,
         stack: *const Stack,
         node: *const Node,
     }
     impl Event for Push {
-        fn log(&self, log: &mut BufWriter<File>) {
+        fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id}, :type :invoke, :f :push }} \n{{:ts {ts}, \
-                      :process {id}, :type :ok, :f :push, :value {{ :stack {stack:?}, \
+                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :push }} \n{{:ts {ts}, \
+                      :process {id:?}, :type :ok, :f :push, :value {{ :stack {stack:?}, \
                       :node {node:?} }} }}",
                      ts = self.ts,
                      id = self.id,
@@ -469,15 +491,15 @@ mod log {
     #[derive(Clone, Copy)]
     struct Pop {
         ts: u32,
-        id: u32,
+        id: libc::pthread_t,
         stack: *const Stack,
         popped: *const Node,
     }
     impl Event for Pop {
-        fn log(&self, log: &mut BufWriter<File>) {
+        fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id}, :type :invoke, :f :pop }} \n{{:ts {ts}, \
-                      :process {id}, :type :ok, :f :pop, :value {{ :stack {stack:?}, \
+                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :pop }} \n{{:ts {ts}, \
+                      :process {id:?}, :type :ok, :f :pop, :value {{ :stack {stack:?}, \
                       :popped {popped:?} }} }}",
                      ts = self.ts,
                      id = self.id,
@@ -494,14 +516,14 @@ mod log {
     #[derive(Clone, Copy)]
     struct Wait {
         ts: u32,
-        id: u32,
+        id: libc::pthread_t,
         node: *const Node,
     }
     impl Event for Wait {
-        fn log(&self, log: &mut BufWriter<File>) {
+        fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id}, :type :invoke, :f :wait }}\n{{:ts {ts}, \
-                      :process {id}, :type :ok, :f :wait, :value {{ :node {node:?} }} }}",
+                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :wait }}\n{{:ts {ts}, \
+                      :process {id:?}, :type :ok, :f :wait, :value {{ :node {node:?} }} }}",
                      ts = self.ts,
                      id = self.id,
                      node = self.node)
@@ -515,16 +537,16 @@ mod log {
     #[derive(Clone, Copy)]
     struct Empty {
         ts: u32,
-        id: u32,
+        id: libc::pthread_t,
         stack: *const Stack,
         was_empty: bool,
     }
     impl Event for Empty {
-        fn log(&self, log: &mut BufWriter<File>) {
+        fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id}, :type :invoke, :f :empty }}\n {{:ts {ts}, \
-                      :process {id}, :type :ok, :f :empty, :value {{ :stack {stack:?}, :was_empty \
-                      {was_empty} }} }}",
+                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :empty }}\n {{:ts {ts}, \
+                      :process {id:?}, :type :ok, :f :empty, :value {{ :stack {stack:?}, \
+                      :was_empty {was_empty} }} }}",
                      ts = self.ts,
                      id = self.id,
                      stack = self.stack,
@@ -540,14 +562,14 @@ mod log {
     #[derive(Clone, Copy)]
     struct Signal {
         ts: u32,
-        id: u32,
+        id: libc::pthread_t,
         node: *const Node,
     }
     impl Event for Signal {
-        fn log(&self, log: &mut BufWriter<File>) {
+        fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id}, :type :invoke, :f :signal }}\n{{:ts \
-                      {ts}, :process {id}, :type :ok, :f :signal, :value {{ :node \
+                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :signal }}\n{{:ts \
+                      {ts}, :process {id:?}, :type :ok, :f :signal, :value {{ :node \
                       {node:?} }} }}",
                      ts = self.ts,
                      id = self.id,
@@ -563,15 +585,15 @@ mod log {
     #[derive(Clone, Copy)]
     struct TryAcquire {
         ts: u32,
-        id: u32,
+        id: libc::pthread_t,
         mutex: *const RawMutex,
         acquired: bool,
     }
     impl Event for TryAcquire {
-        fn log(&self, log: &mut BufWriter<File>) {
+        fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id}, :type :invoke, :f :try_acquire }}\n{{:ts \
-                      {ts}, :process {id}, :type :ok, :f :try_acquire, :value {{ :mutex \
+                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :try_acquire }}\n{{:ts \
+                      {ts}, :process {id:?}, :type :ok, :f :try_acquire, :value {{ :mutex \
                       {mutex:?}, :acquired {acquired} }}}}",
                      ts = self.ts,
                      id = self.id,
@@ -587,14 +609,14 @@ mod log {
     #[derive(Clone, Copy)]
     struct Release {
         ts: u32,
-        id: u32,
+        id: libc::pthread_t,
         mutex: *const RawMutex,
     }
     impl Event for Release {
-        fn log(&self, log: &mut BufWriter<File>) {
+        fn log<B: Write>(&self, log: &mut B) {
             writeln!(log,
-                     "{{:ts {ts}, :process {id}, :type :invoke, :f :release }}\n{{:ts \
-                      {ts}, :process {id}, :type :ok, :f :release, :value {{ :mutex \
+                     "{{:ts {ts}, :process {id:?}, :type :invoke, :f :release }}\n{{:ts \
+                      {ts}, :process {id:?}, :type :ok, :f :release, :value {{ :mutex \
                       {mutex:?} }} }}",
                      ts = self.ts,
                      id = self.id,
