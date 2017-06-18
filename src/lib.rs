@@ -68,16 +68,16 @@ impl QLock {
             let mut node = Node::new();
 
             unsafe {
-                let ev = log::push_event(&self.stack, &node);
+                let id = log::get_ts();
                 self.stack.push(&mut node);
-                ev.complete();
+                log::push_event(id, &self.stack, &node);
             }
 
             self.flush();
 
-            let ev = log::wait_event(&node);
+            let id = log::get_ts();
             node.wait();
-            ev.complete();
+            log::wait_event(id, &node);
         }
 
         return QLockGuard { lock: self };
@@ -86,9 +86,9 @@ impl QLock {
     fn attempt_acquire(&self) -> bool {
         let mut counter = 0usize;
         loop {
-            let ev = log::try_acquire_event(&self.lock);
+            let id = log::get_ts();
             let acq_results = self.lock.try_acquire();
-            ev.complete(acq_results);
+            log::try_acquire_event(id, &self.lock, acq_results);
 
             if acq_results {
                 return true;
@@ -110,9 +110,9 @@ impl QLock {
     fn flush(&self) {
         let mut empty;
         {
-            let ev = log::empty_event(&self.stack);
+            let id = log::get_ts();
             empty = self.stack.empty();
-            ev.complete(empty);
+            log::empty_event(id, &self.stack, empty);
         }
         if empty {
             return;
@@ -123,37 +123,37 @@ impl QLock {
         loop {
             let acquired;
             {
-                let ev = log::try_acquire_event(&self.lock);
+                let id = log::get_ts();
                 acquired = self.lock.try_acquire();
-                ev.complete(acquired);
+                log::try_acquire_event(id, &self.lock, acquired);
             }
             if !acquired {
                 return;
             }
             let popped;
             {
-                let ev = log::pop_event(&self.stack);
+                let id = log::get_ts();
                 popped = self.stack.pop();
-                ev.complete(popped);
+                log::pop_event(id, &self.stack, popped);
             }
             if popped != dummy_node() {
                 unsafe {
                     let pop_ref = &mut *popped;
-                    let ev = log::signal_event(pop_ref);
+                    let id = log::get_ts();
                     pop_ref.signal();
-                    ev.complete();
+                    log::signal_event(id, pop_ref);
                 }
                 return;
             }
 
-            let ev = log::release_event(&self.lock);
+            let id = log::get_ts();
             self.lock.release();
-            ev.complete();
+            log::release_event(id, &self.lock);
 
             {
-                let ev = log::empty_event(&self.stack);
+                let id = log::get_ts();
                 empty = self.stack.empty();
-                ev.complete(empty);
+                log::empty_event(id, &self.stack, empty);
             }
             if empty {
                 return;
@@ -180,24 +180,24 @@ impl<'r> Drop for QLockGuard<'r> {
     fn drop(&mut self) {
         let popped;
         {
-            let ev = log::pop_event(&self.lock.stack);
+            let id = log::get_ts();
             popped = self.lock.stack.pop();
-            ev.complete(popped);
+            log::pop_event(id, &self.lock.stack, popped);
         }
         if popped != dummy_node() {
             unsafe {
                 let pop_ref = &mut *popped;
-                let ev = log::signal_event(pop_ref);
+                let id = log::get_ts();
                 pop_ref.signal();
-                ev.complete();
+                log::signal_event(id, pop_ref);
             }
             return;
         }
 
         {
-            let ev = log::release_event(&self.lock.lock);
+            let id = log::get_ts();
             self.lock.lock.release();
-            ev.complete();
+            log::release_event(id, &self.lock.lock);
         }
 
         self.lock.flush();
@@ -209,61 +209,21 @@ mod log {
     use stack::{Node, Stack};
     use mutex::RawMutex;
 
-    pub struct EmptyEvent;
-    pub fn empty_event(_stack_ptr: *const Stack) -> EmptyEvent {
-        EmptyEvent
-    }
-    impl EmptyEvent {
-        pub fn complete(self, _was_empty: bool) {}
+
+    pub fn get_ts() -> Ts {
+        Ts
     }
 
-    pub struct PushEvent;
-    pub fn push_event(_stack_ptr: *const Stack, _node: *const Node) -> PushEvent {
-        PushEvent
-    }
-    impl PushEvent {
-        pub fn complete(self) {}
-    }
+    #[must_use]
+    pub struct Ts;
 
-    pub struct PopEvent;
-    pub fn pop_event(_stack_ptr: *const Stack) -> PopEvent {
-        PopEvent
-    }
-    impl PopEvent {
-        pub fn complete(self, _popped: *const Node) {}
-    }
-
-    pub struct WaitEvent;
-    pub fn wait_event(_node_ptr: *const Node) -> WaitEvent {
-        WaitEvent
-    }
-    impl WaitEvent {
-        pub fn complete(self) {}
-    }
-
-    pub struct SignalEvent;
-    pub fn signal_event(_node_ptr: *const Node) -> SignalEvent {
-        SignalEvent
-    }
-    impl SignalEvent {
-        pub fn complete(self) {}
-    }
-
-    pub struct TryAcquireEvent;
-    pub fn try_acquire_event(_mutex_ptr: *const RawMutex) -> TryAcquireEvent {
-        TryAcquireEvent
-    }
-    impl TryAcquireEvent {
-        pub fn complete(self, _acquired: bool) {}
-    }
-
-    pub struct ReleaseEvent;
-    pub fn release_event(_mutex_ptr: *const RawMutex) -> ReleaseEvent {
-        ReleaseEvent
-    }
-    impl ReleaseEvent {
-        pub fn complete(self) {}
-    }
+    pub fn empty_event(_ts: Ts, _stack: *const Stack, _was_empty: bool) {}
+    pub fn push_event(_ts: Ts, _stack: *const Stack, _node: *const Node) {}
+    pub fn pop_event(_ts: Ts, _stack: *const Stack, _popped: *const Node) {}
+    pub fn wait_event(_ts: Ts, _node: *const Node) {}
+    pub fn signal_event(_ts: Ts, _node: *const Node) {}
+    pub fn try_acquire_event(_ts: Ts, _mutex: *const RawMutex, _acquired: bool) {}
+    pub fn release_event(_ts: Ts, _mutex: *const RawMutex) {}
 }
 
 #[cfg(feature = "lin-log")]
@@ -273,15 +233,102 @@ mod log {
     use stack::{Node, Stack};
     use mutex::RawMutex;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
     use std::fs::File;
+    use std::cell::UnsafeCell;
     use std::io::{Write, BufWriter};
 
-    extern "C" fn on_exit() {
-        *LOG_FILE.lock().unwrap() = None;
+    pub fn get_ts() -> Ts {
+        Ts { time: EVENT_COUNTER.fetch_add(1, Ordering::Relaxed) }
     }
 
+    #[must_use]
+    pub struct Ts {
+        time: u64,
+    }
+
+    pub fn empty_event(ts: Ts, stack: *const Stack, was_empty: bool) {
+        log(Event::Empty {
+            ts: ts.time,
+            id: get_id(),
+            stack: stack,
+            was_empty: was_empty,
+        })
+    }
+    pub fn push_event(ts: Ts, stack: *const Stack, node: *const Node) {
+        log(Event::Push {
+            ts: ts.time,
+            id: get_id(),
+            stack: stack,
+            node: node,
+        })
+    }
+    pub fn pop_event(ts: Ts, stack: *const Stack, popped: *const Node) {
+        log(Event::Pop {
+            ts: ts.time,
+            id: get_id(),
+            stack: stack,
+            popped: popped,
+        })
+    }
+    pub fn wait_event(ts: Ts, node: *const Node) {
+        log(Event::Wait {
+            ts: ts.time,
+            id: get_id(),
+            node: node,
+        })
+    }
+    pub fn signal_event(ts: Ts, node: *const Node) {
+        log(Event::Signal {
+            ts: ts.time,
+            id: get_id(),
+            node: node,
+        })
+    }
+    pub fn try_acquire_event(ts: Ts, mutex: *const RawMutex, acquired: bool) {
+        log(Event::TryAcquire {
+            ts: ts.time,
+            id: get_id(),
+            mutex: mutex,
+            acquired: acquired,
+        })
+    }
+    pub fn release_event(ts: Ts, mutex: *const RawMutex) {
+        log(Event::Release {
+            ts: ts.time,
+            id: get_id(),
+            mutex: mutex,
+        })
+    }
+
+    extern "C" fn on_exit() {
+        unsafe {
+            let mut list = Vec::new();
+            list.append(&mut *BUF_LIST.lock().unwrap());
+
+            let mut log_file = (*LOG_FILE.lock().unwrap()).take().unwrap();
+            for buf in list.iter() {
+                for &event in (*buf.cell.get()).buf.iter() {
+                    log_event(&mut log_file, event);
+                }
+            }
+        }
+    }
+
+    struct Buf {
+        buf: Vec<Event>,
+    }
+    struct BufCell {
+        cell: UnsafeCell<Buf>,
+    }
+    unsafe impl Sync for BufCell {}
+    unsafe impl Send for BufCell {}
+
+    static EVENT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     lazy_static! {
+        static ref BUF_LIST: Mutex<Vec<Arc<BufCell>>> = Mutex::new(Vec::new());
+
         static ref LOG_FILE: Mutex<Option<BufWriter<File>>> = {
             let file = File::create("linearizability.log").expect("cannot open file");
             let mutex = Mutex::new(Some(BufWriter::new(file)));
@@ -290,202 +337,176 @@ mod log {
             }
             mutex
         };
+    }
 
-        static ref EVENT_COUNTER: AtomicU64 = {
-            AtomicU64::new(0)
+    thread_local! {
+        static LOCAL_BUF: Arc<BufCell> = {
+            let buf = Arc::new(BufCell { cell: UnsafeCell::new(Buf { buf: Vec::new() }) });
+            BUF_LIST.lock().unwrap().push(buf.clone());
+            buf
         };
     }
 
-    fn get_log<F>(f: F)
-        where F: FnOnce(&mut BufWriter<File>)
-    {
-        match *LOG_FILE.lock().unwrap() {
-            Some(ref mut x) => {
-                f(x);
+    fn log(event: Event) {
+        LOCAL_BUF.with(|x| unsafe {
+            let buf = &mut *x.cell.get();
+            buf.buf.push(event);
+            if buf.buf.len() > 1000 {
+                match *LOG_FILE.lock().unwrap() {
+                    Some(ref mut x) => {
+                        for &event in buf.buf.iter() {
+                            log_event(x, event);
+                        }
+                        buf.buf.clear();
+                    }
+                    None => unreachable!(),
+                }
             }
-            None => unreachable!(),
-        }
+        });
     }
 
     fn get_id() -> u64 {
-        EVENT_COUNTER.fetch_add(1, Ordering::Relaxed)
+        unsafe { syscall!(GETTID) as u64 }
     }
 
-    pub struct EmptyEvent {
-        id: u64,
-        stack: *const Stack,
+    #[derive(Clone, Copy)]
+    enum Event {
+        Push {
+            ts: u64,
+            id: u64,
+            stack: *const Stack,
+            node: *const Node,
+        },
+        Pop {
+            ts: u64,
+            id: u64,
+            stack: *const Stack,
+            popped: *const Node,
+        },
+        Wait { ts: u64, id: u64, node: *const Node },
+        Empty {
+            ts: u64,
+            id: u64,
+            stack: *const Stack,
+            was_empty: bool,
+        },
+        Signal { ts: u64, id: u64, node: *const Node },
+        TryAcquire {
+            ts: u64,
+            id: u64,
+            mutex: *const RawMutex,
+            acquired: bool,
+        },
+        Release {
+            ts: u64,
+            id: u64,
+            mutex: *const RawMutex,
+        },
     }
-    pub fn empty_event(stack: *const Stack) -> EmptyEvent {
-        let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :empty}}", id).unwrap());
-        EmptyEvent {
-            id: id,
-            stack: stack,
-        }
-    }
-    impl EmptyEvent {
-        pub fn complete(self, was_empty: bool) {
-            get_log(|log| {
+
+    fn log_event(log: &mut BufWriter<File>, event: Event) {
+        match event {
+            Event::Empty { ts, id, stack, was_empty } => {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :empty, :value {{ :stack {:?}, :was_empty \
-                          {} }} }}",
-                         self.id,
-                         self.stack,
+                         "{{:ts {}, :process {}, :type :invoke, :f :empty }}",
+                         ts,
+                         id)
+                    .unwrap();
+                writeln!(log,
+                         "{{:ts {}, :process {}, :type :ok, :f :empty, :value {{ :stack {:?}, \
+                          :was_empty {} }} }}",
+                         ts,
+                         id,
+                         stack,
                          was_empty)
                     .unwrap()
-            });
-        }
-    }
+            }
 
-    pub struct PushEvent {
-        id: u64,
-        stack: *const Stack,
-        node: *const Node,
-    }
-    pub fn push_event(stack: *const Stack, node: *const Node) -> PushEvent {
-        let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :push}}", id).unwrap());
-        PushEvent {
-            id: id,
-            stack: stack,
-            node: node,
-        }
-    }
-    impl PushEvent {
-        pub fn complete(self) {
-            get_log(|log| {
+            Event::Push { ts, id, stack, node } => {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :push, :value {{ :stack {:?}, :node {:?} \
-                          }} }}",
-                         self.id,
-                         self.stack,
-                         self.node)
+                         "{{:ts {}, :process {}, :type :invoke, :f :push }}",
+                         ts,
+                         id)
+                    .unwrap();
+                writeln!(log,
+                         "{{:ts {}, :process {}, :type :ok, :f :push, :value {{ :stack {:?}, \
+                          :node {:?} }} }}",
+                         ts,
+                         id,
+                         stack,
+                         node)
                     .unwrap()
-            });
-        }
-    }
-
-    pub struct PopEvent {
-        id: u64,
-        stack: *const Stack,
-    }
-    pub fn pop_event(stack: *const Stack) -> PopEvent {
-        let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :pop}}", id).unwrap());
-        PopEvent {
-            id: id,
-            stack: stack,
-        }
-    }
-    impl PopEvent {
-        pub fn complete(self, popped: *const Node) {
-            get_log(|log| {
+            }
+            Event::Pop { ts, id, stack, popped } => {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :pop, :value {{ :stack {:?}, :popped {:?} \
-                          }} }}",
-                         self.id,
-                         self.stack,
+                         "{{:ts {}, :process {}, :type :invoke, :f :pop }}",
+                         ts,
+                         id)
+                    .unwrap();
+                writeln!(log,
+                         "{{:ts {}, :process {}, :type :ok, :f :pop, :value {{ :stack {:?}, \
+                          :popped {:?} }} }}",
+                         ts,
+                         id,
+                         stack,
                          popped)
                     .unwrap()
-            });
-        }
-    }
-
-    pub struct WaitEvent {
-        id: u64,
-        node: *const Node,
-    }
-    pub fn wait_event(node: *const Node) -> WaitEvent {
-        let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :wait}}", id).unwrap());
-        WaitEvent {
-            id: id,
-            node: node,
-        }
-    }
-    impl WaitEvent {
-        pub fn complete(self) {
-            get_log(|log| {
+            }
+            Event::Wait { ts, id, node } => {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :wait, :value {{ :node {:?} }} }}",
-                         self.id,
-                         self.node)
+                         "{{:ts {}, :process {}, :type :invoke, :f :wait }}",
+                         ts,
+                         id)
+                    .unwrap();
+                writeln!(log,
+                         "{{:ts {}, :process {}, :type :ok, :f :wait, :value {{ :node {:?} }} }}",
+                         ts,
+                         id,
+                         node)
                     .unwrap()
-            });
-        }
-    }
-
-    pub struct SignalEvent {
-        id: u64,
-        node: *const Node,
-    }
-    pub fn signal_event(node: *const Node) -> SignalEvent {
-        let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :signal}}", id).unwrap());
-        SignalEvent {
-            id: id,
-            node: node,
-        }
-    }
-    impl SignalEvent {
-        pub fn complete(self) {
-            get_log(|log| {
+            }
+            Event::Signal { ts, id, node } => {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :signal, :value {{ :node {:?} }} }}",
-                         self.id,
-                         self.node)
+                         "{{:ts {}, :process {}, :type :invoke, :f :signal }}",
+                         ts,
+                         id)
+                    .unwrap();
+                writeln!(log,
+                         "{{:ts {}, :process {}, :type :ok, :f :signal, :value {{ :node {:?} }} }}",
+                         ts,
+                         id,
+                         node)
                     .unwrap()
-            });
-        }
-    }
-
-    pub struct TryAcquireEvent {
-        id: u64,
-        mutex: *const RawMutex,
-    }
-    pub fn try_acquire_event(mutex: *const RawMutex) -> TryAcquireEvent {
-        let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :try_acquire}}", id).unwrap());
-        TryAcquireEvent {
-            id: id,
-            mutex: mutex,
-        }
-    }
-    impl TryAcquireEvent {
-        pub fn complete(self, acquired: bool) {
-            get_log(|log| {
+            }
+            Event::TryAcquire { ts, id, mutex, acquired } => {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :try_acquire, :value {{ :mutex {:?}, \
-                          :acquired {} }}}}",
-                         self.id,
-                         self.mutex,
+                         "{{:ts {}, :process {}, :type :invoke, :f :try_acquire }}",
+                         ts,
+                         id)
+                    .unwrap();
+                writeln!(log,
+                         "{{:ts {}, :process {}, :type :ok, :f :try_acquire, :value {{ :mutex \
+                          {:?}, :acquired {} }}}}",
+                         ts,
+                         id,
+                         mutex,
                          acquired)
                     .unwrap()
-            });
-        }
-    }
-
-    pub struct ReleaseEvent {
-        id: u64,
-        mutex: *const RawMutex,
-    }
-    pub fn release_event(mutex: *const RawMutex) -> ReleaseEvent {
-        let id = get_id();
-        get_log(|log| writeln!(log, "{{:process {}, :type :invoke, :f :release}}", id).unwrap());
-        ReleaseEvent {
-            id: id,
-            mutex: mutex,
-        }
-    }
-    impl ReleaseEvent {
-        pub fn complete(self) {
-            get_log(|log| {
+            }
+            Event::Release { ts, id, mutex } => {
                 writeln!(log,
-                         "{{:process {}, :type :ok, :f :release, :value {{ :mutex {:?} }} }}",
-                         self.id,
-                         self.mutex)
+                         "{{:ts {}, :process {}, :type :invoke, :f :release }}",
+                         ts,
+                         id)
+                    .unwrap();
+                writeln!(log,
+                         "{{:ts {}, :process {}, :type :ok, :f :release, :value {{ :mutex {:?} }} \
+                          }}",
+                         ts,
+                         id,
+                         mutex)
                     .unwrap()
-            });
+            }
         }
     }
 }
