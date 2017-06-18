@@ -13,10 +13,10 @@
 // permissions and limitations under the License.
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use qlock_util::cacheline::CacheLineAligned;
+use dontshare::DontShare;
 
 pub struct RawMutex {
-    locked: CacheLineAligned<AtomicBool>,
+    locked: DontShare<AtomicBool>,
 }
 
 const UNLOCKED: bool = false;
@@ -25,7 +25,7 @@ const LOCKED: bool = true;
 impl RawMutex {
     #[inline(always)]
     pub fn new() -> Self {
-        RawMutex { locked: CacheLineAligned::new(AtomicBool::new(UNLOCKED)) }
+        RawMutex { locked: DontShare::new(AtomicBool::new(UNLOCKED)) }
     }
 
     pub fn try_acquire(&self) -> bool {

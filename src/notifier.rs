@@ -18,9 +18,10 @@ use std::cmp;
 use std::mem;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::thread;
 
 use qlock_util::backoff;
-use qlock_util::cacheline::CacheLineAligned;
+use dontshare::DontShare;
 
 const YIELD_INTERVAL: usize = 8;
 const MAX_EXP: usize = 8;
@@ -43,8 +44,8 @@ const NOT_SPINNING: bool = true;
 /// and then thrown away.
 pub struct Notifier {
     // Must be 32 bits for futex system calls
-    triggered: CacheLineAligned<AtomicU32>,
-    spinning: CacheLineAligned<AtomicBool>,
+    triggered: DontShare<AtomicU32>,
+    spinning: DontShare<AtomicBool>,
 }
 
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
@@ -54,8 +55,8 @@ impl Notifier {
     #[inline(always)]
     pub const fn new() -> Notifier {
         Notifier {
-            triggered: CacheLineAligned::new(AtomicU32::new(NOT_TRIGGERED)),
-            spinning: CacheLineAligned::new(AtomicBool::new(SPINNING)),
+            triggered: DontShare::new(AtomicU32::new(NOT_TRIGGERED)),
+            spinning: DontShare::new(AtomicBool::new(SPINNING)),
         }
     }
 
@@ -67,7 +68,7 @@ impl Notifier {
                 break 'wait_loop;
             }
 
-            backoff::pause();
+            atomic::hint_core_should_pause();
 
             {
                 let mut counter = 0;
@@ -78,7 +79,7 @@ impl Notifier {
 
                     let exp = cmp::min(1 << counter, 1 << MAX_EXP);
                     if YIELD_INTERVAL - 1 == counter % YIELD_INTERVAL {
-                        backoff::yield_now();
+                        thread::yield_now();
                     }
 
                     // Unroll the loop for better performance

@@ -18,18 +18,6 @@ use std::sync::atomic;
 use rand;
 
 #[inline(always)]
-pub fn yield_now() {
-    unsafe {
-        syscall!(SCHED_YIELD);
-    }
-}
-
-#[inline(always)]
-pub fn pause() {
-    atomic::hint_core_should_pause();
-}
-
-#[inline(always)]
 pub fn pause_times(spins: usize) {
     if 0 == spins {
         return;
@@ -57,25 +45,25 @@ pub fn pause_times(spins: usize) {
                                     7 => {},
                                     _ => unreachable!()
                                 }
-                                pause();
+                                    atomic::hint_core_should_pause();
                                 break;
                             }
-                            pause();
+                                atomic::hint_core_should_pause();
                             break;
                         }
-                        pause();
+                            atomic::hint_core_should_pause();
                         break;
                     }
-                    pause();
+                        atomic::hint_core_should_pause();
                     break;
                 }
-                pause();
+                    atomic::hint_core_should_pause();
                 break;
             }
-            pause();
+                atomic::hint_core_should_pause();
             break;
         }
-        pause();
+            atomic::hint_core_should_pause();
         break;
     }
 
@@ -89,7 +77,7 @@ pub fn pause_times(spins: usize) {
         }
 
         for _ in 0..unroll {
-            pause();
+                atomic::hint_core_should_pause();
         }
     }
 }

@@ -4,17 +4,19 @@
 extern crate syscall;
 extern crate qlock_util;
 extern crate criterion;
+extern crate dontshare;
 
 mod contend;
 
 use criterion::Criterion;
 
-use qlock_util::cacheline::CacheLineAligned;
+use dontshare::DontShare;
 use qlock_util::backoff;
 
 use std::mem;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
 
 use contend::{TestCase, contend};
 
@@ -26,9 +28,9 @@ const FUTEX_WAIT_BITSET_PRIVATE: usize = 9 | 128;
 const FUTEX_WAKE_BITSET_PRIVATE: usize = 10 | 128;
 
 struct Ticket {
-    high: CacheLineAligned<AtomicU32>,
-    low: CacheLineAligned<AtomicU32>,
-    spinners: CacheLineAligned<AtomicU32>,
+    high: DontShare<AtomicU32>,
+    low: DontShare<AtomicU32>,
+    spinners: DontShare<AtomicU32>,
 }
 
 struct TicketGuard<'r> {
@@ -40,9 +42,9 @@ impl Ticket {
     #[inline(never)]
     fn new() -> Ticket {
         Ticket {
-            high: CacheLineAligned::new(AtomicU32::new(0)),
-            low: CacheLineAligned::new(AtomicU32::new(0)),
-            spinners: CacheLineAligned::new(AtomicU32::new(0)),
+            high: DontShare::new(AtomicU32::new(0)),
+            low: DontShare::new(AtomicU32::new(0)),
+            spinners: DontShare::new(AtomicU32::new(0)),
         }
     }
 
@@ -64,7 +66,7 @@ impl Ticket {
                     break;
                 }
                 if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
-                    backoff::yield_now();
+                    thread::yield_now();
                 }
                 let exp;
                 if counter > MAX_EXP {

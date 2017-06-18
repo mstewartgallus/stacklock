@@ -18,10 +18,6 @@
 #![feature(thread_local)]
 #![feature(const_fn)]
 
-#[macro_use]
-extern crate syscall;
-
 extern crate rand;
 
 pub mod backoff;
-pub mod cacheline;

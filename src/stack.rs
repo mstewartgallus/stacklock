@@ -15,9 +15,10 @@ use std::mem;
 use std::ptr;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::thread;
 
 use qlock_util::backoff;
-use qlock_util::cacheline::CacheLineAligned;
+use dontshare::DontShare;
 use notifier::Notifier;
 
 static mut DUMMY_NODE: Node = Node::new_uninit();
@@ -95,7 +96,7 @@ const MAX_EXP: usize = 6;
 
 pub struct Node {
     notifier: Notifier,
-    next: CacheLineAligned<*mut Node>,
+    next: DontShare<*mut Node>,
 }
 
 impl Node {
@@ -103,14 +104,14 @@ impl Node {
     pub fn new() -> Node {
         Node {
             notifier: Notifier::new(),
-            next: CacheLineAligned::new(dummy_node()),
+            next: DontShare::new(dummy_node()),
         }
     }
 
     pub const fn new_uninit() -> Node {
         Node {
             notifier: Notifier::new(),
-            next: CacheLineAligned::new(ptr::null_mut()),
+            next: DontShare::new(ptr::null_mut()),
         }
     }
 
@@ -124,13 +125,13 @@ impl Node {
 }
 
 pub struct Stack {
-    head: CacheLineAligned<AtomicAba>,
+    head: DontShare<AtomicAba>,
 }
 
 impl Stack {
     #[inline(always)]
     pub fn new() -> Self {
-        Stack { head: CacheLineAligned::new(AtomicAba::new(Aba::new(dummy_node(), 0))) }
+        Stack { head: DontShare::new(AtomicAba::new(Aba::new(dummy_node(), 0))) }
     }
 
     pub fn empty(&self) -> bool {
@@ -157,7 +158,7 @@ impl Stack {
                 Ok(_) => break,
             }
 
-            backoff::yield_now();
+            thread::yield_now();
 
             let exp = if counter < MAX_EXP {
                 let old = counter;
@@ -200,7 +201,7 @@ impl Stack {
                     Ok(_) => break,
                 }
 
-                backoff::yield_now();
+                thread::yield_now();
 
                 let exp = if counter < MAX_EXP {
                     let old = counter;

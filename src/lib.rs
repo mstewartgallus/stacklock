@@ -15,6 +15,7 @@
 #![feature(asm)]
 #![feature(integer_atomics)]
 #![feature(const_fn)]
+#![feature(hint_core_should_pause)]
 
 #[cfg(feature = "lin-log")]
 #[macro_use]
@@ -27,9 +28,13 @@ extern crate libc;
 
 extern crate qlock_util;
 
+extern crate dontshare;
+
 mod mutex;
 mod stack;
 mod notifier;
+
+use std::thread;
 
 use qlock_util::backoff;
 
@@ -97,7 +102,7 @@ impl QLock {
             if counter > LOOPS {
                 return false;
             }
-            backoff::yield_now();
+            thread::yield_now();
 
             let spins = backoff::thread_num(1, 1 << counter);
 
@@ -161,7 +166,7 @@ impl QLock {
 
             let interval = 8;
             if yield_counter % interval == interval - 1 {
-                backoff::yield_now();
+                thread::yield_now();
             }
 
             let spins = backoff::thread_num(1, 1 << counter);

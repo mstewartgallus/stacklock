@@ -1,4 +1,5 @@
 #![feature(integer_atomics)]
+#![feature(hint_core_should_pause)]
 
 extern crate criterion;
 
@@ -6,18 +7,20 @@ extern crate criterion;
 extern crate syscall;
 
 extern crate qlock_util;
+extern crate dontshare;
 
 use criterion::Criterion;
 
 mod contend;
 
-use qlock_util::cacheline::CacheLineAligned;
+use dontshare::DontShare;
 use qlock_util::backoff;
 
 use std::mem;
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
 
 use contend::{TestCase, contend};
 
@@ -25,7 +28,7 @@ const NUM_LOOPS: usize = 30;
 const NUM_PAUSES: usize = 20;
 
 struct Futex {
-    val: CacheLineAligned<AtomicU32>,
+    val: DontShare<AtomicU32>,
 }
 
 struct FutexGuard<'r> {
@@ -37,7 +40,7 @@ const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 impl Futex {
     #[inline(never)]
     fn new() -> Futex {
-        Futex { val: CacheLineAligned::new(AtomicU32::new(0)) }
+        Futex { val: DontShare::new(AtomicU32::new(0)) }
     }
 
     #[inline(never)]
@@ -56,7 +59,7 @@ impl Futex {
             return FutexGuard { lock: self };
         }
 
-        backoff::pause();
+        atomic::hint_core_should_pause();
 
         loop {
             let mut counter = NUM_LOOPS;
@@ -76,7 +79,7 @@ impl Futex {
                             inner_counter = newcounter;
                         }
                     }
-                    backoff::pause();
+                    atomic::hint_core_should_pause();
                 }
                 match counter.checked_sub(1) {
                     None => break,
@@ -84,7 +87,7 @@ impl Futex {
                         counter = newcounter;
                     }
                 }
-                backoff::yield_now();
+                thread::yield_now();
             }
 
             unsafe {

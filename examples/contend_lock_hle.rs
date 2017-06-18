@@ -2,23 +2,25 @@
 #![feature(integer_atomics)]
 extern crate criterion;
 extern crate qlock_util;
+extern crate dontshare;
 
 mod contend;
 
 use qlock_util::backoff;
-use qlock_util::cacheline::CacheLineAligned;
+use dontshare::DontShare;
 
 use criterion::Criterion;
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::thread;
 
 use contend::{TestCase, contend};
 
 const MAX_EXP: usize = 9;
 
 struct Hle {
-    val: CacheLineAligned<AtomicU32>,
+    val: DontShare<AtomicU32>,
 }
 
 struct HleGuard<'r> {
@@ -28,7 +30,7 @@ struct HleGuard<'r> {
 impl Hle {
     #[inline(never)]
     fn new() -> Hle {
-        Hle { val: CacheLineAligned::new(AtomicU32::new(0)) }
+        Hle { val: DontShare::new(AtomicU32::new(0)) }
     }
 
     #[inline(never)]
@@ -51,7 +53,7 @@ impl Hle {
 
         let mut counter = 0;
         loop {
-            backoff::yield_now();
+            thread::yield_now();
             let exp;
             if counter > MAX_EXP {
                 exp = 1 << MAX_EXP;
