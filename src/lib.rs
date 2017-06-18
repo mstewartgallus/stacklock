@@ -250,7 +250,7 @@ mod log {
     }
 
     pub fn empty_event(ts: Ts, stack: *const Stack, was_empty: bool) {
-        log(Event::Empty {
+        log(Empty {
             ts: ts.time,
             id: get_id(),
             stack: stack,
@@ -258,7 +258,7 @@ mod log {
         })
     }
     pub fn push_event(ts: Ts, stack: *const Stack, node: *const Node) {
-        log(Event::Push {
+        log(Push {
             ts: ts.time,
             id: get_id(),
             stack: stack,
@@ -266,7 +266,7 @@ mod log {
         })
     }
     pub fn pop_event(ts: Ts, stack: *const Stack, popped: *const Node) {
-        log(Event::Pop {
+        log(Pop {
             ts: ts.time,
             id: get_id(),
             stack: stack,
@@ -274,21 +274,21 @@ mod log {
         })
     }
     pub fn wait_event(ts: Ts, node: *const Node) {
-        log(Event::Wait {
+        log(Wait {
             ts: ts.time,
             id: get_id(),
             node: node,
         })
     }
     pub fn signal_event(ts: Ts, node: *const Node) {
-        log(Event::Signal {
+        log(Signal {
             ts: ts.time,
             id: get_id(),
             node: node,
         })
     }
     pub fn try_acquire_event(ts: Ts, mutex: *const RawMutex, acquired: bool) {
-        log(Event::TryAcquire {
+        log(TryAcquire {
             ts: ts.time,
             id: get_id(),
             mutex: mutex,
@@ -296,7 +296,7 @@ mod log {
         })
     }
     pub fn release_event(ts: Ts, mutex: *const RawMutex) {
-        log(Event::Release {
+        log(Release {
             ts: ts.time,
             id: get_id(),
             mutex: mutex,
@@ -309,17 +309,43 @@ mod log {
             list.append(&mut *BUF_LIST.lock().unwrap());
 
             let mut log_file = (*LOG_FILE.lock().unwrap()).take().unwrap();
-            for buf in list.iter() {
-                for &event in (*buf.cell.get()).buf.iter() {
-                    log_event(&mut log_file, event);
+            for buf_cell in list.iter() {
+                let buf = &mut *buf_cell.cell.get();
+                for event in buf.push_buf.iter() {
+                    event.log(&mut log_file);
+                }
+                for event in buf.pop_buf.iter() {
+                    event.log(&mut log_file);
+                }
+                for event in buf.wait_buf.iter() {
+                    event.log(&mut log_file);
+                }
+                for event in buf.empty_buf.iter() {
+                    event.log(&mut log_file);
+                }
+                for event in buf.signal_buf.iter() {
+                    event.log(&mut log_file);
+                }
+                for event in buf.try_acquire_buf.iter() {
+                    event.log(&mut log_file);
+                }
+                for event in buf.release_buf.iter() {
+                    event.log(&mut log_file);
                 }
             }
         }
     }
 
     struct Buf {
-        buf: Vec<Event>,
+        push_buf: Vec<Push>,
+        pop_buf: Vec<Pop>,
+        wait_buf: Vec<Wait>,
+        empty_buf: Vec<Empty>,
+        signal_buf: Vec<Signal>,
+        try_acquire_buf: Vec<TryAcquire>,
+        release_buf: Vec<Release>,
     }
+
     struct BufCell {
         cell: UnsafeCell<Buf>,
     }
@@ -343,33 +369,65 @@ mod log {
 
     thread_local! {
         static LOCAL_BUF: Arc<BufCell> = {
-            let buf = Arc::new(BufCell { cell: UnsafeCell::new(Buf { buf: Vec::new() }) });
+            let buf = Arc::new(BufCell { cell: UnsafeCell::new(Buf {
+                push_buf: Vec::new(),
+                pop_buf: Vec::new(),
+                wait_buf: Vec::new(),
+                empty_buf: Vec::new(),
+                signal_buf: Vec::new(),
+                try_acquire_buf: Vec::new(),
+                release_buf: Vec::new()
+            }) });
             BUF_LIST.lock().unwrap().push(buf.clone());
             buf
         };
     }
 
     #[cold]
-    fn do_log(buf: &mut Vec<Event>) {
+    fn do_log(buf: &mut Buf) {
         if let Ok(mut log) = LOG_FILE.try_lock() {
             match *log {
                 Some(ref mut x) => {
-                    for &event in buf.iter() {
-                        log_event(x, event);
+                    for event in buf.push_buf.iter() {
+                        event.log(x);
                     }
-                    buf.clear();
+                    for event in buf.pop_buf.iter() {
+                        event.log(x);
+                    }
+                    for event in buf.wait_buf.iter() {
+                        event.log(x);
+                    }
+                    for event in buf.empty_buf.iter() {
+                        event.log(x);
+                    }
+                    for event in buf.signal_buf.iter() {
+                        event.log(x);
+                    }
+                    for event in buf.try_acquire_buf.iter() {
+                        event.log(x);
+                    }
+                    for event in buf.release_buf.iter() {
+                        event.log(x);
+                    }
+                    buf.push_buf.clear();
+                    buf.pop_buf.clear();
+                    buf.wait_buf.clear();
+                    buf.empty_buf.clear();
+                    buf.signal_buf.clear();
+                    buf.try_acquire_buf.clear();
+                    buf.release_buf.clear();
                 }
                 None => unreachable!(),
             }
         }
     }
 
-    fn log(event: Event) {
+    fn log<T: Event>(event: T) {
         LOCAL_BUF.with(|x| unsafe {
             let buf = &mut *x.cell.get();
-            buf.buf.push(event);
+            event.push(buf);
             if 0 == backoff::thread_num(0, 4000) {
-                do_log(&mut buf.buf);
+                do_log(buf);
             }
         });
     }
@@ -378,111 +436,173 @@ mod log {
         unsafe { syscall!(GETTID) as u64 }
     }
 
-    #[derive(Clone, Copy)]
-    enum Event {
-        Push {
-            ts: u64,
-            id: u64,
-            stack: *const Stack,
-            node: *const Node,
-        },
-        Pop {
-            ts: u64,
-            id: u64,
-            stack: *const Stack,
-            popped: *const Node,
-        },
-        Wait { ts: u64, id: u64, node: *const Node },
-        Empty {
-            ts: u64,
-            id: u64,
-            stack: *const Stack,
-            was_empty: bool,
-        },
-        Signal { ts: u64, id: u64, node: *const Node },
-        TryAcquire {
-            ts: u64,
-            id: u64,
-            mutex: *const RawMutex,
-            acquired: bool,
-        },
-        Release {
-            ts: u64,
-            id: u64,
-            mutex: *const RawMutex,
-        },
+    trait Event {
+        fn log(&self, file: &mut BufWriter<File>);
+        fn push(&self, buf: &mut Buf);
     }
 
-    fn log_event(log: &mut BufWriter<File>, event: Event) {
-        match event {
-                Event::Empty { ts, id, stack, was_empty } => {
-                    writeln!(log,
-                             "{{:ts {ts}, :process {id}, :type :invoke, :f :empty }}\n {{:ts \
-                              {ts}, :process {id}, :type :ok, :f :empty, :value {{ :stack \
-                              {stack:?}, :was_empty {was_empty} }} }}",
-                             ts = ts,
-                             id = id,
-                             stack = stack,
-                             was_empty = was_empty)
-                }
+    #[derive(Clone, Copy)]
+    struct Push {
+        ts: u64,
+        id: u64,
+        stack: *const Stack,
+        node: *const Node,
+    }
+    impl Event for Push {
+        fn log(&self, log: &mut BufWriter<File>) {
+            writeln!(log,
+                     "{{:ts {ts}, :process {id}, :type :invoke, :f :push }} \n{{:ts {ts}, \
+                      :process {id}, :type :ok, :f :push, :value {{ :stack {stack:?}, \
+                      :node {node:?} }} }}",
+                     ts = self.ts,
+                     id = self.id,
+                     stack = self.stack,
+                     node = self.node)
+                .unwrap()
+        }
 
-                Event::Push { ts, id, stack, node } => {
-                    writeln!(log,
-                             "{{:ts {ts}, :process {id}, :type :invoke, :f :push }} \n{{:ts {ts}, \
-                              :process {id}, :type :ok, :f :push, :value {{ :stack {stack:?}, \
-                              :node {node:?} }} }}",
-                             ts = ts,
-                             id = id,
-                             stack = stack,
-                             node = node)
-                }
-                Event::Pop { ts, id, stack, popped } => {
-                    writeln!(log,
-                             "{{:ts {ts}, :process {id}, :type :invoke, :f :pop }} \n{{:ts {ts}, \
-                              :process {id}, :type :ok, :f :pop, :value {{ :stack {stack:?}, \
-                              :popped {popped:?} }} }}",
-                             ts = ts,
-                             id = id,
-                             stack = stack,
-                             popped = popped)
-                }
-                Event::Wait { ts, id, node } => {
-                    writeln!(log,
-                             "{{:ts {ts}, :process {id}, :type :invoke, :f :wait }}\n{{:ts {ts}, \
-                              :process {id}, :type :ok, :f :wait, :value {{ :node {node:?} }} }}",
-                             ts = ts,
-                             id = id,
-                             node = node)
-                }
-                Event::Signal { ts, id, node } => {
-                    writeln!(log,
-                             "{{:ts {ts}, :process {id}, :type :invoke, :f :signal }}\n{{:ts \
-                              {ts}, :process {id}, :type :ok, :f :signal, :value {{ :node \
-                              {node:?} }} }}",
-                             ts = ts,
-                             id = id,
-                             node = node)
-                }
-                Event::TryAcquire { ts, id, mutex, acquired } => {
-                    writeln!(log,
-                             "{{:ts {ts}, :process {id}, :type :invoke, :f :try_acquire }}\n{{:ts \
-                              {ts}, :process {id}, :type :ok, :f :try_acquire, :value {{ :mutex \
-                              {mutex:?}, :acquired {acquired} }}}}",
-                             ts = ts,
-                             id = id,
-                             mutex = mutex,
-                             acquired = acquired)
-                }
-                Event::Release { ts, id, mutex } => {
-                    writeln!(log,
-                             "{{:ts {ts}, :process {id}, :type :invoke, :f :release }}\n{{:ts \
-                              {ts}, :process {id}, :type :ok, :f :release, :value {{ :mutex \
-                              {mutex:?} }} }}",
-                             ts = ts,
-                             id = id,
-                             mutex = mutex)
-                }
-            }
-            .unwrap()
+        fn push(&self, buf: &mut Buf) {
+            buf.push_buf.push(*self);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct Pop {
+        ts: u64,
+        id: u64,
+        stack: *const Stack,
+        popped: *const Node,
+    }
+    impl Event for Pop {
+        fn log(&self, log: &mut BufWriter<File>) {
+            writeln!(log,
+                     "{{:ts {ts}, :process {id}, :type :invoke, :f :pop }} \n{{:ts {ts}, \
+                      :process {id}, :type :ok, :f :pop, :value {{ :stack {stack:?}, \
+                      :popped {popped:?} }} }}",
+                     ts = self.ts,
+                     id = self.id,
+                     stack = self.stack,
+                     popped = self.popped)
+                .unwrap()
+        }
+
+        fn push(&self, buf: &mut Buf) {
+            buf.pop_buf.push(*self);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct Wait {
+        ts: u64,
+        id: u64,
+        node: *const Node,
+    }
+    impl Event for Wait {
+        fn log(&self, log: &mut BufWriter<File>) {
+            writeln!(log,
+                     "{{:ts {ts}, :process {id}, :type :invoke, :f :wait }}\n{{:ts {ts}, \
+                      :process {id}, :type :ok, :f :wait, :value {{ :node {node:?} }} }}",
+                     ts = self.ts,
+                     id = self.id,
+                     node = self.node)
+                .unwrap()
+        }
+        fn push(&self, buf: &mut Buf) {
+            buf.wait_buf.push(*self);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct Empty {
+        ts: u64,
+        id: u64,
+        stack: *const Stack,
+        was_empty: bool,
+    }
+    impl Event for Empty {
+        fn log(&self, log: &mut BufWriter<File>) {
+            writeln!(log,
+                     "{{:ts {ts}, :process {id}, :type :invoke, :f :empty }}\n {{:ts {ts}, \
+                      :process {id}, :type :ok, :f :empty, :value {{ :stack {stack:?}, :was_empty \
+                      {was_empty} }} }}",
+                     ts = self.ts,
+                     id = self.id,
+                     stack = self.stack,
+                     was_empty = self.was_empty)
+                .unwrap()
+        }
+
+        fn push(&self, buf: &mut Buf) {
+            buf.empty_buf.push(*self);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct Signal {
+        ts: u64,
+        id: u64,
+        node: *const Node,
+    }
+    impl Event for Signal {
+        fn log(&self, log: &mut BufWriter<File>) {
+            writeln!(log,
+                     "{{:ts {ts}, :process {id}, :type :invoke, :f :signal }}\n{{:ts \
+                      {ts}, :process {id}, :type :ok, :f :signal, :value {{ :node \
+                      {node:?} }} }}",
+                     ts = self.ts,
+                     id = self.id,
+                     node = self.node)
+                .unwrap()
+        }
+
+        fn push(&self, buf: &mut Buf) {
+            buf.signal_buf.push(*self);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct TryAcquire {
+        ts: u64,
+        id: u64,
+        mutex: *const RawMutex,
+        acquired: bool,
+    }
+    impl Event for TryAcquire {
+        fn log(&self, log: &mut BufWriter<File>) {
+            writeln!(log,
+                     "{{:ts {ts}, :process {id}, :type :invoke, :f :try_acquire }}\n{{:ts \
+                      {ts}, :process {id}, :type :ok, :f :try_acquire, :value {{ :mutex \
+                      {mutex:?}, :acquired {acquired} }}}}",
+                     ts = self.ts,
+                     id = self.id,
+                     mutex = self.mutex,
+                     acquired = self.acquired)
+                .unwrap()
+        }
+        fn push(&self, buf: &mut Buf) {
+            buf.try_acquire_buf.push(*self);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct Release {
+        ts: u64,
+        id: u64,
+        mutex: *const RawMutex,
+    }
+    impl Event for Release {
+        fn log(&self, log: &mut BufWriter<File>) {
+            writeln!(log,
+                     "{{:ts {ts}, :process {id}, :type :invoke, :f :release }}\n{{:ts \
+                      {ts}, :process {id}, :type :ok, :f :release, :value {{ :mutex \
+                      {mutex:?} }} }}",
+                     ts = self.ts,
+                     id = self.id,
+                     mutex = self.mutex)
+                .unwrap()
+        }
+        fn push(&self, buf: &mut Buf) {
+            buf.release_buf.push(*self);
+        }
     }
 }
