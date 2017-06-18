@@ -234,7 +234,7 @@ mod log {
 
     use qlock_util::backoff;
 
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex};
     use std::fs::File;
     use std::cell::UnsafeCell;
@@ -246,7 +246,7 @@ mod log {
 
     #[must_use]
     pub struct Ts {
-        time: u64,
+        time: u32,
     }
 
     pub fn empty_event(ts: Ts, stack: *const Stack, was_empty: bool) {
@@ -352,7 +352,7 @@ mod log {
     unsafe impl Sync for BufCell {}
     unsafe impl Send for BufCell {}
 
-    static EVENT_COUNTER: AtomicU64 = AtomicU64::new(0);
+    static EVENT_COUNTER: AtomicU32 = AtomicU32::new(0);
 
     lazy_static! {
         static ref BUF_LIST: Mutex<Vec<Arc<BufCell>>> = Mutex::new(Vec::new());
@@ -432,8 +432,8 @@ mod log {
         });
     }
 
-    fn get_id() -> u64 {
-        unsafe { syscall!(GETTID) as u64 }
+    fn get_id() -> u32 {
+        unsafe { syscall!(GETTID) as u32 }
     }
 
     trait Event {
@@ -443,8 +443,8 @@ mod log {
 
     #[derive(Clone, Copy)]
     struct Push {
-        ts: u64,
-        id: u64,
+        ts: u32,
+        id: u32,
         stack: *const Stack,
         node: *const Node,
     }
@@ -468,8 +468,8 @@ mod log {
 
     #[derive(Clone, Copy)]
     struct Pop {
-        ts: u64,
-        id: u64,
+        ts: u32,
+        id: u32,
         stack: *const Stack,
         popped: *const Node,
     }
@@ -493,8 +493,8 @@ mod log {
 
     #[derive(Clone, Copy)]
     struct Wait {
-        ts: u64,
-        id: u64,
+        ts: u32,
+        id: u32,
         node: *const Node,
     }
     impl Event for Wait {
@@ -514,8 +514,8 @@ mod log {
 
     #[derive(Clone, Copy)]
     struct Empty {
-        ts: u64,
-        id: u64,
+        ts: u32,
+        id: u32,
         stack: *const Stack,
         was_empty: bool,
     }
@@ -539,8 +539,8 @@ mod log {
 
     #[derive(Clone, Copy)]
     struct Signal {
-        ts: u64,
-        id: u64,
+        ts: u32,
+        id: u32,
         node: *const Node,
     }
     impl Event for Signal {
@@ -562,8 +562,8 @@ mod log {
 
     #[derive(Clone, Copy)]
     struct TryAcquire {
-        ts: u64,
-        id: u64,
+        ts: u32,
+        id: u32,
         mutex: *const RawMutex,
         acquired: bool,
     }
@@ -586,8 +586,8 @@ mod log {
 
     #[derive(Clone, Copy)]
     struct Release {
-        ts: u64,
-        id: u64,
+        ts: u32,
+        id: u32,
         mutex: *const RawMutex,
     }
     impl Event for Release {
