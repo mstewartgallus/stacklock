@@ -25,4 +25,3 @@ extern crate rand;
 
 pub mod backoff;
 pub mod cacheline;
-pub mod exp;
