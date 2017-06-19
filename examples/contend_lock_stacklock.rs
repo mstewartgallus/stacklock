@@ -1,18 +1,18 @@
 extern crate criterion;
-extern crate qlock;
+extern crate stacklock;
 
 mod contend;
 
-use qlock::QLock;
+use stacklock::QLock;
 
 use criterion::Criterion;
 use std::sync::Arc;
 
 use contend::{TestCase, contend};
 
-enum QLockTestCase {}
+enum MyTestCase {}
 
-impl TestCase for QLockTestCase {
+impl TestCase for MyTestCase {
     type TestType = Arc<QLock>;
 
     fn create_value() -> Self::TestType {
@@ -27,7 +27,7 @@ impl TestCase for QLockTestCase {
 }
 
 fn main() {
-    Criterion::default().bench_function_over_inputs("contend_lock_qlock",
-                                                    |b, &&n| contend::<QLockTestCase>(b, n),
+    Criterion::default().bench_function_over_inputs("contend_lock_stacklock",
+                                                    |b, &&n| contend::<MyTestCase>(b, n),
                                                     contend::STANDARD_TESTS.iter());
 }
