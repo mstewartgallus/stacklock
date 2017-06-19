@@ -40,8 +40,6 @@ use std::thread;
 use stack::{Node, Stack, dummy_node};
 use mutex::RawMutex;
 
-const LOOPS: usize = 4;
-
 pub struct Mutex {
     stack: Stack,
     lock: RawMutex,
@@ -64,7 +62,13 @@ impl Mutex {
     pub fn lock<'r>(&'r self) -> MutexGuard<'r> {
         // As an optimization spin a bit trying to get the lock before
         // falling back to a private node to spin on.
-        if self.attempt_acquire() {
+        let acquired;
+        {
+            let ts = log::get_ts();
+            acquired = self.lock.spin_try_acquire();
+            log::try_acquire_event(ts, &self.lock, acquired);
+        }
+        if acquired {
             return MutexGuard { lock: self };
         }
 
@@ -85,30 +89,6 @@ impl Mutex {
         }
 
         return MutexGuard { lock: self };
-    }
-
-    fn attempt_acquire(&self) -> bool {
-        let mut counter = 0usize;
-        loop {
-            let id = log::get_ts();
-            let acq_results = self.lock.try_acquire();
-            log::try_acquire_event(id, &self.lock, acq_results);
-
-            if acq_results {
-                return true;
-            }
-
-            if counter > LOOPS {
-                return false;
-            }
-            thread::yield_now();
-
-            let spins = weakrand::rand(1, 1 << counter);
-
-            sleepfast::pause_times(spins as usize);
-
-            counter = counter.wrapping_add(1);
-        }
     }
 
     fn flush(&self) {

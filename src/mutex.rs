@@ -12,8 +12,11 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 use dontshare::DontShare;
+use sleepfast;
+use weakrand;
 
 pub struct RawMutex {
     locked: DontShare<AtomicBool>,
@@ -21,6 +24,8 @@ pub struct RawMutex {
 
 const UNLOCKED: bool = false;
 const LOCKED: bool = true;
+
+const LOOPS: usize = 4;
 
 impl RawMutex {
     #[inline(always)]
@@ -40,6 +45,26 @@ impl RawMutex {
             return true;
         }
         return false;
+    }
+
+    pub fn spin_try_acquire(&self) -> bool {
+        let mut counter = 0usize;
+        loop {
+            if self.try_acquire() {
+                return true;
+            }
+
+            if counter > LOOPS {
+                return false;
+            }
+            thread::yield_now();
+
+            let spins = weakrand::rand(1, 1 << counter);
+
+            sleepfast::pause_times(spins as usize);
+
+            counter = counter.wrapping_add(1);
+        }
     }
 
     pub fn release(&self) {
