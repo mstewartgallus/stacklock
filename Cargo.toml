@@ -1,5 +1,5 @@
 [package]
-name = "qlock"
+name = "stacklock"
 version = "0.1.0"
 authors = ["Steven Stewart-Gallus <sstewartgallus00@mylangara.bc.ca>"]
 repository = "https://sstewartgallus.com/git?p=qlock.git;a=summary"
