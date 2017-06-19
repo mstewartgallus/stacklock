@@ -42,30 +42,30 @@ use mutex::RawMutex;
 
 const LOOPS: usize = 4;
 
-pub struct QLock {
+pub struct Mutex {
     stack: Stack,
     lock: RawMutex,
 }
-unsafe impl Send for QLock {}
-unsafe impl Sync for QLock {}
+unsafe impl Send for Mutex {}
+unsafe impl Sync for Mutex {}
 
-pub struct QLockGuard<'r> {
-    lock: &'r QLock,
+pub struct MutexGuard<'r> {
+    lock: &'r Mutex,
 }
 
-impl QLock {
+impl Mutex {
     pub fn new() -> Self {
-        QLock {
+        Mutex {
             stack: Stack::new(),
             lock: RawMutex::new(),
         }
     }
 
-    pub fn lock<'r>(&'r self) -> QLockGuard<'r> {
+    pub fn lock<'r>(&'r self) -> MutexGuard<'r> {
         // As an optimization spin a bit trying to get the lock before
         // falling back to a private node to spin on.
         if self.attempt_acquire() {
-            return QLockGuard { lock: self };
+            return MutexGuard { lock: self };
         }
 
         {
@@ -84,7 +84,7 @@ impl QLock {
             log::wait_event(id, &node);
         }
 
-        return QLockGuard { lock: self };
+        return MutexGuard { lock: self };
     }
 
     fn attempt_acquire(&self) -> bool {
@@ -180,7 +180,7 @@ impl QLock {
     }
 }
 
-impl<'r> Drop for QLockGuard<'r> {
+impl<'r> Drop for MutexGuard<'r> {
     fn drop(&mut self) {
         let popped;
         {

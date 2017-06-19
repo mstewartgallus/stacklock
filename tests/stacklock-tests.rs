@@ -1,13 +1,13 @@
-extern crate qlock;
+extern crate stacklock;
 
-use qlock::QLock;
+use stacklock::Mutex;
 use std::sync::{Arc, Barrier};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 #[test]
 fn test_as_lock() {
-    let lock = Arc::new(QLock::new());
+    let lock = Arc::new(Mutex::new());
 
     let mut children = Vec::new();
     for _ in 0..20 {
@@ -30,7 +30,7 @@ fn test_as_lock() {
 fn test_race() {
     let num = 20;
 
-    let lock = Arc::new(QLock::new());
+    let lock = Arc::new(Mutex::new());
     let racer = Arc::new(AtomicBool::new(false));
     let start = Arc::new(Barrier::new(num));
 
