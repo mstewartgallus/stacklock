@@ -6,7 +6,7 @@ extern crate criterion;
 #[macro_use]
 extern crate syscall;
 
-extern crate backoff;
+extern crate sleepfast;
 extern crate dontshare;
 extern crate weakrand;
 

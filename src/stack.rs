@@ -17,7 +17,7 @@ use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
-use backoff;
+use sleepfast;
 use dontshare::DontShare;
 use weakrand;
 
@@ -171,7 +171,7 @@ impl Stack {
             };
             let spins = weakrand::rand(1, exp);
 
-            backoff::pause_times(spins);
+            sleepfast::pause_times(spins as usize);
         }
     }
 
@@ -214,7 +214,7 @@ impl Stack {
                 };
                 let spins = weakrand::rand(1, exp);
 
-                backoff::pause_times(spins);
+                sleepfast::pause_times(spins as usize);
             }
             return head.ptr();
         }

@@ -11,13 +11,12 @@ categories = ["concurrency", "data-structures"]
 lin-log = ["lazy_static"]
 
 [dependencies]
+sleepfast = "1.0"
 dontshare = "1.0"
 weakrand = "1.0"
 syscall = "0.2"
 libc = "0.2"
 lazy_static = { version = "0.2", optional = true }
-
-backoff = { path = "backoff" }
 
 [dev-dependencies]
 parking_lot = { version = "0.4" }

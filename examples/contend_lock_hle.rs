@@ -1,7 +1,7 @@
 #![feature(asm)]
 #![feature(integer_atomics)]
 extern crate criterion;
-extern crate backoff;
+extern crate sleepfast;
 extern crate dontshare;
 extern crate weakrand;
 
@@ -62,7 +62,7 @@ impl Hle {
                 counter = counter.wrapping_add(1);
             }
 
-            backoff::pause_times(weakrand::rand(1, exp));
+            sleepfast::pause_times(weakrand::rand(1, exp) as usize);
 
             if self.val.load(Ordering::Relaxed) == 0 {
                 let mut prev: u32 = 1;

@@ -2,7 +2,7 @@
 
 #[macro_use]
 extern crate syscall;
-extern crate backoff;
+extern crate sleepfast;
 extern crate criterion;
 extern crate dontshare;
 extern crate weakrand;
@@ -74,7 +74,7 @@ impl Ticket {
                 } else {
                     exp = 1 << counter;
                 }
-                backoff::pause_times(weakrand::rand(1, exp));
+                sleepfast::pause_times(weakrand::rand(1, exp) as usize);
                 counter = counter.wrapping_add(1);
             }
 

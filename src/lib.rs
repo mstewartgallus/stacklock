@@ -26,7 +26,7 @@ extern crate syscall;
 
 extern crate libc;
 
-extern crate backoff;
+extern crate sleepfast;
 
 extern crate dontshare;
 extern crate weakrand;
@@ -105,7 +105,7 @@ impl QLock {
 
             let spins = weakrand::rand(1, 1 << counter);
 
-            backoff::pause_times(spins);
+            sleepfast::pause_times(spins as usize);
 
             counter = counter.wrapping_add(1);
         }
@@ -170,7 +170,7 @@ impl QLock {
 
             let spins = weakrand::rand(1, 1 << counter);
 
-            backoff::pause_times(spins);
+            sleepfast::pause_times(spins as usize);
 
             if counter < 4 {
                 counter = counter.wrapping_add(1);

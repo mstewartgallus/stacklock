@@ -20,7 +20,7 @@ use std::sync::atomic;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 
-use backoff;
+use sleepfast;
 use dontshare::DontShare;
 use weakrand;
 
@@ -86,7 +86,7 @@ impl Notifier {
                     // Unroll the loop for better performance
                     let spins = weakrand::rand(1, exp);
 
-                    backoff::pause_times(spins);
+                    sleepfast::pause_times(spins as usize);
 
                     counter = counter.wrapping_add(1);
                     if counter >= LOOPS {
