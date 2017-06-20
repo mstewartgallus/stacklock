@@ -73,6 +73,12 @@ impl AtomicLockState {
                              success: Ordering,
                              fail: Ordering)
                              -> Result<LockState, LockState> {
+        // Test and test and set optimization
+        let dblcheck = self.state.load(fail);
+        if dblcheck != old.state {
+            return Err(LockState { state: dblcheck });
+        }
+
         match self.state.compare_exchange_weak(old.state, new.state, success, fail) {
             Ok(x) => Ok(LockState { state: x }),
             Err(x) => Err(LockState { state: x }),
@@ -107,20 +113,15 @@ impl RawMutex {
 
         let mut counter = 0;
         loop {
-            let dblcheck = self.state.load(Ordering::Relaxed);
-            if dblcheck != state {
-                state = dblcheck;
-            } else {
-                match self.state.compare_exchange_weak(state,
-                                                       state.set_locked(),
-                                                       Ordering::SeqCst,
-                                                       Ordering::Relaxed) {
-                    Ok(_) => return true,
-                    Err(newstate) => {
-                        state = newstate;
-                        if state.locked() {
-                            return false;
-                        }
+            match self.state.compare_exchange_weak(state,
+                                                   state.set_locked(),
+                                                   Ordering::SeqCst,
+                                                   Ordering::Relaxed) {
+                Ok(_) => return true,
+                Err(newstate) => {
+                    state = newstate;
+                    if state.locked() {
+                        return false;
                     }
                 }
             }
@@ -143,34 +144,24 @@ impl RawMutex {
         loop {
             if state.locked() {
                 if !state.has_spinner() {
-                    let dblcheck = self.state.load(Ordering::Relaxed);
-                    if dblcheck != state {
-                        state = dblcheck;
-                    } else {
-                        match self.state.compare_exchange_weak(state,
-                                                               state.set_has_spinner(),
-                                                               Ordering::SeqCst,
-                                                               Ordering::Relaxed) {
-                            Ok(_) => {}
-                            Err(newstate) => {
-                                state = newstate;
-                            }
+                    match self.state.compare_exchange_weak(state,
+                                                           state.set_has_spinner(),
+                                                           Ordering::SeqCst,
+                                                           Ordering::Relaxed) {
+                        Ok(_) => {}
+                        Err(newstate) => {
+                            state = newstate;
                         }
                     }
                 }
             } else {
-                let dblcheck = self.state.load(Ordering::Relaxed);
-                if dblcheck != state {
-                    state = dblcheck;
-                } else {
-                    match self.state.compare_exchange_weak(state,
-                                                           state.set_locked(),
-                                                           Ordering::SeqCst,
-                                                           Ordering::Relaxed) {
-                        Ok(_) => return true,
-                        Err(newstate) => {
-                            state = newstate;
-                        }
+                match self.state.compare_exchange_weak(state,
+                                                       state.set_locked(),
+                                                       Ordering::SeqCst,
+                                                       Ordering::Relaxed) {
+                    Ok(_) => return true,
+                    Err(newstate) => {
+                        state = newstate;
                     }
                 }
             }
@@ -191,33 +182,28 @@ impl RawMutex {
         // later spins)
         counter = 0;
         loop {
-            let dblcheck = self.state.load(Ordering::Relaxed);
-            if dblcheck != state {
-                state = dblcheck;
-            } else {
-                if !state.has_spinner() {
-                    break;
-                }
-                if state.locked() {
-                    match self.state.compare_exchange_weak(state,
-                                                           state.set_has_no_spinner(),
-                                                           Ordering::SeqCst,
-                                                           Ordering::Relaxed) {
-                        Ok(_) => break,
-                        Err(newstate) => {
-                            state = newstate;
-                        }
+            if !state.has_spinner() {
+                break;
+            }
+            if state.locked() {
+                match self.state.compare_exchange_weak(state,
+                                                       state.set_has_no_spinner(),
+                                                       Ordering::SeqCst,
+                                                       Ordering::Relaxed) {
+                    Ok(_) => break,
+                    Err(newstate) => {
+                        state = newstate;
                     }
-                } else {
-                    // opportunistically try to grab a lock if it is unlocked
-                    match self.state.compare_exchange_weak(state,
-                                                           state.set_locked(),
-                                                           Ordering::SeqCst,
-                                                           Ordering::Relaxed) {
-                        Ok(_) => return true,
-                        Err(newstate) => {
-                            state = newstate;
-                        }
+                }
+            } else {
+                // opportunistically try to grab a lock if it is unlocked
+                match self.state.compare_exchange_weak(state,
+                                                       state.set_locked(),
+                                                       Ordering::SeqCst,
+                                                       Ordering::Relaxed) {
+                    Ok(_) => return true,
+                    Err(newstate) => {
+                        state = newstate;
                     }
                 }
             }
