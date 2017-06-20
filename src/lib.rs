@@ -40,6 +40,8 @@ use std::thread;
 use stack::{Node, Stack};
 use mutex::{RawMutex, SpinState};
 
+const MAX_EXP: usize = 4;
+
 pub struct Mutex {
     stack: Stack,
     lock: RawMutex,
@@ -152,13 +154,18 @@ impl Mutex {
                 thread::yield_now();
             }
 
-            let spins = weakrand::rand(1, 1 << counter);
+            let exp;
+            if counter < MAX_EXP {
+                exp = 1 << counter;
+                counter = counter.wrapping_add(1);
+            } else {
+                exp = 1 << MAX_EXP;
+            }
+
+            let spins = weakrand::rand(1, exp);
 
             sleepfast::pause_times(spins as usize);
 
-            if counter < 4 {
-                counter = counter.wrapping_add(1);
-            }
             yield_counter = yield_counter.wrapping_add(1);
         }
     }

@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
-use std::cmp;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 
@@ -127,13 +126,17 @@ impl RawMutex {
             }
             thread::yield_now();
 
-            let spins = weakrand::rand(1, 1 << counter);
+            let exp;
+            if counter < MAX_EXP {
+                exp = 1 << counter;
+                counter = counter.wrapping_add(1);
+            } else {
+                exp = 1 << MAX_EXP;
+            }
+
+            let spins = weakrand::rand(1, exp);
 
             sleepfast::pause_times(spins as usize);
-
-            if counter < MAX_EXP {
-                counter = counter.wrapping_add(1);
-            }
         }
     }
 
@@ -171,7 +174,12 @@ impl RawMutex {
             }
             thread::yield_now();
 
-            let spins = weakrand::rand(1, 1 << cmp::min(counter, MAX_EXP));
+            let spins = weakrand::rand(1,
+                                       if counter < MAX_EXP {
+                                           1 << counter
+                                       } else {
+                                           1 << MAX_EXP
+                                       });
 
             sleepfast::pause_times(spins as usize);
 
@@ -209,13 +217,17 @@ impl RawMutex {
             }
             thread::yield_now();
 
-            let spins = weakrand::rand(1, 1 << counter);
+            let exp;
+            if counter < MAX_EXP {
+                exp = 1 << counter;
+                counter = counter.wrapping_add(1);
+            } else {
+                exp = 1 << MAX_EXP;
+            }
+
+            let spins = weakrand::rand(1, exp);
 
             sleepfast::pause_times(spins as usize);
-
-            if counter < MAX_EXP {
-                counter = counter.wrapping_add(1);
-            }
         }
         return false;
     }
