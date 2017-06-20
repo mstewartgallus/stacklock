@@ -34,6 +34,9 @@ mod mutex;
 mod stack;
 mod notifier;
 
+use std::cell::UnsafeCell;
+use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::thread;
 
@@ -42,26 +45,35 @@ use mutex::{RawMutex, SpinState};
 
 const MAX_EXP: usize = 4;
 
-pub struct Mutex {
+pub struct Mutex<T: ?Sized> {
     stack: Stack,
     lock: RawMutex,
+    data: UnsafeCell<T>,
 }
-unsafe impl Send for Mutex {}
-unsafe impl Sync for Mutex {}
+unsafe impl<T: Send> Send for Mutex<T> {}
+unsafe impl<T: Send> Sync for Mutex<T> {}
 
-pub struct MutexGuard<'r> {
-    lock: &'r Mutex,
+pub struct MutexGuard<'r, T: ?Sized + 'r> {
+    lock: &'r Mutex<T>,
+    _phantom: PhantomData<&'r mut T>,
 }
 
-impl Mutex {
-    pub fn new() -> Self {
+impl<T> Mutex<T> {
+    pub fn new(val: T) -> Self {
         Mutex {
             stack: Stack::new(),
             lock: RawMutex::new(),
+            data: UnsafeCell::new(val),
         }
     }
 
-    pub fn lock<'r>(&'r self) -> MutexGuard<'r> {
+    pub fn into_inner(self) -> T {
+        unsafe { self.data.into_inner() }
+    }
+}
+
+impl<T: ?Sized> Mutex<T> {
+    pub fn lock<'r>(&'r self) -> MutexGuard<'r, T> {
         // As an optimization spin a bit trying to get the lock before
         // falling back to a private node to spin on.
         let acquired;
@@ -71,7 +83,10 @@ impl Mutex {
             log::try_acquire_event(ts, &self.lock, acquired);
         }
         if acquired {
-            return MutexGuard { lock: self };
+            return MutexGuard {
+                lock: self,
+                _phantom: PhantomData,
+            };
         }
 
         {
@@ -90,7 +105,10 @@ impl Mutex {
             log::wait_event(id, &node);
         }
 
-        return MutexGuard { lock: self };
+        return MutexGuard {
+            lock: self,
+            _phantom: PhantomData,
+        };
     }
 
     fn flush(&self) {
@@ -171,7 +189,7 @@ impl Mutex {
     }
 }
 
-impl<'r> Drop for MutexGuard<'r> {
+impl<'r, T: ?Sized> Drop for MutexGuard<'r, T> {
     fn drop(&mut self) {
         let spin_state;
         {
@@ -183,6 +201,25 @@ impl<'r> Drop for MutexGuard<'r> {
         if spin_state != SpinState::Spinner {
             self.lock.flush();
         }
+    }
+}
+
+impl<T: ?Sized + Default> Default for Mutex<T> {
+    fn default() -> Mutex<T> {
+        Mutex::new(Default::default())
+    }
+}
+
+impl<'a, T: ?Sized + 'a> Deref for MutexGuard<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<'a, T: ?Sized + 'a> DerefMut for MutexGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.lock.data.get() }
     }
 }
 

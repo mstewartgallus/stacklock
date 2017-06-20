@@ -13,10 +13,10 @@ use contend::{TestCase, contend};
 enum MyTestCase {}
 
 impl TestCase for MyTestCase {
-    type TestType = Arc<Mutex>;
+    type TestType = Arc<Mutex<()>>;
 
     fn create_value() -> Self::TestType {
-        Arc::new(Mutex::new())
+        Arc::new(Mutex::new(()))
     }
     fn do_stuff_with_value(value: &Self::TestType, times: usize) {
         let borrowed = &*value;
