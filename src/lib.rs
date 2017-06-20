@@ -216,7 +216,7 @@ mod log {
 
     use weakrand;
 
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicU32, ATOMIC_U32_INIT, Ordering};
     use std::sync::{Arc, Mutex};
     use std::fs::File;
     use std::cell::UnsafeCell;
@@ -339,8 +339,8 @@ mod log {
     unsafe impl Sync for BufCell {}
     unsafe impl Send for BufCell {}
 
-    static TID_COUNTER: AtomicU32 = AtomicU32::new(0);
-    static EVENT_COUNTER: AtomicU32 = AtomicU32::new(0);
+    static TID_COUNTER: AtomicU32 = ATOMIC_U32_INIT;
+    static EVENT_COUNTER: AtomicU32 = ATOMIC_U32_INIT;
 
     lazy_static! {
         static ref BUF_LIST: Mutex<Vec<Arc<BufCell>>> = Mutex::new(Vec::new());
