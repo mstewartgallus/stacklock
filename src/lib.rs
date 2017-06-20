@@ -38,7 +38,7 @@ use std::ptr;
 use std::thread;
 
 use stack::{Node, Stack};
-use mutex::RawMutex;
+use mutex::{RawMutex, SpinState};
 
 pub struct Mutex {
     stack: Stack,
@@ -131,8 +131,12 @@ impl Mutex {
             }
 
             let id = log::get_ts();
-            self.lock.release();
+            let spin_state = self.lock.release();
             log::release_event(id, &self.lock);
+
+            if SpinState::Spinner == spin_state {
+                return;
+            }
 
             {
                 let id = log::get_ts();
@@ -162,29 +166,16 @@ impl Mutex {
 
 impl<'r> Drop for MutexGuard<'r> {
     fn drop(&mut self) {
-        let popped;
+        let spin_state;
         {
             let id = log::get_ts();
-            popped = self.lock.stack.pop();
-            log::pop_event(id, &self.lock.stack, popped);
-        }
-        if popped != ptr::null_mut() {
-            unsafe {
-                let pop_ref = &mut *popped;
-                let id = log::get_ts();
-                pop_ref.signal();
-                log::signal_event(id, pop_ref);
-            }
-            return;
-        }
-
-        {
-            let id = log::get_ts();
-            self.lock.lock.release();
+            spin_state = self.lock.lock.release();
             log::release_event(id, &self.lock.lock);
         }
 
-        self.lock.flush();
+        if spin_state != SpinState::Spinner {
+            self.lock.flush();
+        }
     }
 }
 
