@@ -18,6 +18,10 @@ use dontshare::DontShare;
 use sleepfast;
 use weakrand;
 
+const YIELD_INTERVAL: usize = 4;
+const MAX_EXP: usize = 8;
+const LOOPS: usize = 10;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct LockState {
     state: u32,
@@ -73,15 +77,16 @@ impl AtomicLockState {
                              fail: Ordering)
                              -> Result<LockState, LockState> {
         // Test and test and set optimization
-        let dblcheck = self.state.load(fail);
-        if dblcheck != old.state {
-            return Err(LockState { state: dblcheck });
+        let mut dblcheck = self.state.load(fail);
+        if dblcheck == old.state {
+            match self.state.compare_exchange_weak(old.state, new.state, success, fail) {
+                Ok(x) => return Ok(LockState { state: x }),
+                Err(x) => {
+                    dblcheck = x;
+                }
+            }
         }
-
-        match self.state.compare_exchange_weak(old.state, new.state, success, fail) {
-            Ok(x) => Ok(LockState { state: x }),
-            Err(x) => Err(LockState { state: x }),
-        }
+        return Err(LockState { state: dblcheck });
     }
 }
 
@@ -94,9 +99,6 @@ pub enum SpinState {
     Spinner,
     NoSpinner,
 }
-
-const MAX_EXP: usize = 8;
-const LOOPS: usize = 10;
 
 impl RawMutex {
     #[inline(always)]
@@ -172,7 +174,9 @@ impl RawMutex {
             if counter > LOOPS {
                 break;
             }
-            thread::yield_now();
+            if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
+                thread::yield_now();
+            }
 
             let spins = weakrand::rand(1,
                                        if counter < MAX_EXP {
