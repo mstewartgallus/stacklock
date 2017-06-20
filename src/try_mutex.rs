@@ -90,7 +90,7 @@ impl AtomicLockState {
     }
 }
 
-pub struct RawMutex {
+pub struct TryMutex {
     state: DontShare<AtomicLockState>,
 }
 
@@ -100,10 +100,10 @@ pub enum SpinState {
     NoSpinner,
 }
 
-impl RawMutex {
+impl TryMutex {
     #[inline(always)]
     pub fn new() -> Self {
-        RawMutex { state: DontShare::new(AtomicLockState::new(LockState::new(false, false))) }
+        TryMutex { state: DontShare::new(AtomicLockState::new(LockState::new(false, false))) }
     }
 
     pub fn try_acquire(&self) -> bool {

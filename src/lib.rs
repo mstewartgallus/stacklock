@@ -30,7 +30,7 @@ extern crate sleepfast;
 extern crate dontshare;
 extern crate weakrand;
 
-mod mutex;
+mod try_mutex;
 mod stack;
 mod notifier;
 
@@ -41,13 +41,13 @@ use std::ptr;
 use std::thread;
 
 use stack::{Node, Stack};
-use mutex::{RawMutex, SpinState};
+use try_mutex::{TryMutex, SpinState};
 
 const MAX_EXP: usize = 4;
 
 pub struct Mutex<T: ?Sized> {
     stack: Stack,
-    lock: RawMutex,
+    lock: TryMutex,
     data: UnsafeCell<T>,
 }
 unsafe impl<T: Send> Send for Mutex<T> {}
@@ -62,7 +62,7 @@ impl<T> Mutex<T> {
     pub fn new(val: T) -> Self {
         Mutex {
             stack: Stack::new(),
-            lock: RawMutex::new(),
+            lock: TryMutex::new(),
             data: UnsafeCell::new(val),
         }
     }
@@ -226,7 +226,7 @@ impl<'a, T: ?Sized + 'a> DerefMut for MutexGuard<'a, T> {
 #[cfg(not(feature = "lin-log"))]
 mod log {
     use stack::{Node, Stack};
-    use mutex::RawMutex;
+    use mutex::TryMutex;
 
     pub fn get_ts() -> Ts {
         Ts
@@ -240,8 +240,8 @@ mod log {
     pub fn pop_event(_ts: Ts, _stack: *const Stack, _popped: *const Node) {}
     pub fn wait_event(_ts: Ts, _node: *const Node) {}
     pub fn signal_event(_ts: Ts, _node: *const Node) {}
-    pub fn try_acquire_event(_ts: Ts, _mutex: *const RawMutex, _acquired: bool) {}
-    pub fn release_event(_ts: Ts, _mutex: *const RawMutex) {}
+    pub fn try_acquire_event(_ts: Ts, _mutex: *const TryMutex, _acquired: bool) {}
+    pub fn release_event(_ts: Ts, _mutex: *const TryMutex) {}
 }
 
 #[cfg(feature = "lin-log")]
@@ -249,7 +249,7 @@ mod log {
     use libc;
 
     use stack::{Node, Stack};
-    use mutex::RawMutex;
+    use try_mutex::TryMutex;
 
     use weakrand;
 
@@ -307,7 +307,7 @@ mod log {
             node: node,
         })
     }
-    pub fn try_acquire_event(ts: Ts, mutex: *const RawMutex, acquired: bool) {
+    pub fn try_acquire_event(ts: Ts, mutex: *const TryMutex, acquired: bool) {
         log(TryAcquire {
             ts: ts.time,
             id: get_id(),
@@ -315,7 +315,7 @@ mod log {
             acquired: acquired,
         })
     }
-    pub fn release_event(ts: Ts, mutex: *const RawMutex) {
+    pub fn release_event(ts: Ts, mutex: *const TryMutex) {
         log(Release {
             ts: ts.time,
             id: get_id(),
@@ -610,7 +610,7 @@ mod log {
     struct TryAcquire {
         ts: u32,
         id: u32,
-        mutex: *const RawMutex,
+        mutex: *const TryMutex,
         acquired: bool,
     }
     impl Event for TryAcquire {
@@ -634,7 +634,7 @@ mod log {
     struct Release {
         ts: u32,
         id: u32,
-        mutex: *const RawMutex,
+        mutex: *const TryMutex,
     }
     impl Event for Release {
         fn log<B: Write>(&self, log: &mut B) {
