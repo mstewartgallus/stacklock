@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
 use dontshare::DontShare;
@@ -20,7 +20,7 @@ use weakrand;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct LockState {
-    state: u8,
+    state: u32,
 }
 impl LockState {
     fn new(locked: bool, has_spinner: bool) -> Self {
@@ -52,11 +52,11 @@ impl LockState {
 }
 
 struct AtomicLockState {
-    state: AtomicU8,
+    state: AtomicU32,
 }
 impl AtomicLockState {
     fn new(state: LockState) -> Self {
-        AtomicLockState { state: AtomicU8::new(state.state) }
+        AtomicLockState { state: AtomicU32::new(state.state) }
     }
     fn load(&self, ordering: Ordering) -> LockState {
         LockState { state: self.state.load(ordering) }

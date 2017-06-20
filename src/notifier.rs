@@ -17,7 +17,7 @@ use libc;
 use std::cmp;
 use std::mem;
 use std::sync::atomic;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
 use sleepfast;
@@ -31,8 +31,8 @@ const LOOPS: usize = 20;
 const TRIGGERED: u32 = 0;
 const NOT_TRIGGERED: u32 = 1;
 
-const SPINNING: bool = false;
-const NOT_SPINNING: bool = true;
+const SPINNING: u32 = 0;
+const NOT_SPINNING: u32 = 1;
 
 // Due to legacy issues on x86 operations on values smaller than 32
 // bits can be slow.
@@ -46,7 +46,7 @@ const NOT_SPINNING: bool = true;
 pub struct Notifier {
     // Must be 32 bits for futex system calls
     triggered: DontShare<AtomicU32>,
-    spinning: DontShare<AtomicBool>,
+    spinning: DontShare<AtomicU32>,
 }
 
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
@@ -57,7 +57,7 @@ impl Notifier {
     pub fn new() -> Notifier {
         Notifier {
             triggered: DontShare::new(AtomicU32::new(NOT_TRIGGERED)),
-            spinning: DontShare::new(AtomicBool::new(SPINNING)),
+            spinning: DontShare::new(AtomicU32::new(SPINNING)),
         }
     }
 
