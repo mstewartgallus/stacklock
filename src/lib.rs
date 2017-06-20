@@ -14,7 +14,6 @@
 //
 #![feature(asm)]
 #![feature(integer_atomics)]
-#![feature(const_fn)]
 #![feature(hint_core_should_pause)]
 
 #[cfg(feature = "lin-log")]
@@ -35,9 +34,10 @@ mod mutex;
 mod stack;
 mod notifier;
 
+use std::ptr;
 use std::thread;
 
-use stack::{Node, Stack, dummy_node};
+use stack::{Node, Stack};
 use mutex::RawMutex;
 
 pub struct Mutex {
@@ -120,7 +120,7 @@ impl Mutex {
                 popped = self.stack.pop();
                 log::pop_event(id, &self.stack, popped);
             }
-            if popped != dummy_node() {
+            if popped != ptr::null_mut() {
                 unsafe {
                     let pop_ref = &mut *popped;
                     let id = log::get_ts();
@@ -168,7 +168,7 @@ impl<'r> Drop for MutexGuard<'r> {
             popped = self.lock.stack.pop();
             log::pop_event(id, &self.lock.stack, popped);
         }
-        if popped != dummy_node() {
+        if popped != ptr::null_mut() {
             unsafe {
                 let pop_ref = &mut *popped;
                 let id = log::get_ts();

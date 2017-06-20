@@ -23,15 +23,6 @@ use weakrand;
 
 use notifier::Notifier;
 
-static mut DUMMY_NODE: Node = Node::new_uninit();
-
-#[inline]
-pub fn dummy_node() -> *mut Node {
-    unsafe {
-        return &mut DUMMY_NODE;
-    }
-}
-
 #[derive(Copy, Clone)]
 struct Aba {
     ptr: u64,
@@ -106,13 +97,6 @@ impl Node {
     pub fn new() -> Node {
         Node {
             notifier: Notifier::new(),
-            next: DontShare::new(dummy_node()),
-        }
-    }
-
-    pub const fn new_uninit() -> Node {
-        Node {
-            notifier: Notifier::new(),
             next: DontShare::new(ptr::null_mut()),
         }
     }
@@ -133,11 +117,11 @@ pub struct Stack {
 impl Stack {
     #[inline(always)]
     pub fn new() -> Self {
-        Stack { head: DontShare::new(AtomicAba::new(Aba::new(dummy_node(), 0))) }
+        Stack { head: DontShare::new(AtomicAba::new(Aba::new(ptr::null_mut(), 0))) }
     }
 
     pub fn empty(&self) -> bool {
-        self.head.load(Ordering::Acquire).ptr() == dummy_node()
+        self.head.load(Ordering::Acquire).ptr() == ptr::null_mut()
     }
 
     pub unsafe fn push(&self, node: *mut Node) {
@@ -178,8 +162,8 @@ impl Stack {
     pub fn pop(&self) -> *mut Node {
         unsafe {
             let mut head = self.head.load(Ordering::Relaxed);
-            if head.ptr() == dummy_node() {
-                return dummy_node();
+            if head.ptr() == ptr::null_mut() {
+                return ptr::null_mut();
             }
 
             let mut counter = 0;
@@ -196,8 +180,8 @@ impl Stack {
                     .compare_exchange_weak(head, new, Ordering::SeqCst, Ordering::Relaxed) {
                     Err(newhead) => {
                         head = newhead;
-                        if head.ptr() == dummy_node() {
-                            return dummy_node();
+                        if head.ptr() == ptr::null_mut() {
+                            return ptr::null_mut();
                         }
                     }
                     Ok(_) => break,

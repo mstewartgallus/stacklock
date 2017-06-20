@@ -54,7 +54,7 @@ const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
 impl Notifier {
     #[inline(always)]
-    pub const fn new() -> Notifier {
+    pub fn new() -> Notifier {
         Notifier {
             triggered: DontShare::new(AtomicU32::new(NOT_TRIGGERED)),
             spinning: DontShare::new(AtomicBool::new(SPINNING)),
