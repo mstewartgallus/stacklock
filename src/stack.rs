@@ -17,73 +17,11 @@ use std::sync::atomic;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 
-use sleepfast;
 use dontshare::DontShare;
+use sleepfast;
 use weakrand;
 
 use notifier::Notifier;
-
-#[derive(Copy, Clone)]
-struct Aba {
-    ptr: u64,
-}
-
-impl Aba {
-    #[inline(always)]
-    fn new(node: *mut Node, tag: u32) -> Self {
-        unsafe {
-            let node_bits: u64 = mem::transmute(node);
-            let tag_bits: u64 = (tag & ((1 << 23) - 1)) as u64;
-            Aba { ptr: tag_bits | node_bits << 16 }
-        }
-    }
-    fn ptr(&self) -> *mut Node {
-        unsafe {
-            let node_bits = (self.ptr >> 23) << 7;
-            mem::transmute(node_bits)
-        }
-    }
-    fn tag(&self) -> u32 {
-        let tag_bits: u64 = self.ptr & ((1 << 23) - 1);
-        tag_bits as u32
-    }
-}
-impl PartialEq for Aba {
-    fn eq(&self, other: &Aba) -> bool {
-        self.ptr == other.ptr
-    }
-}
-struct AtomicAba {
-    ptr: AtomicU64,
-}
-impl AtomicAba {
-    #[inline(always)]
-    fn new(ptr: Aba) -> Self {
-        AtomicAba { ptr: AtomicU64::new(ptr.ptr) }
-    }
-
-    fn load(&self, ordering: Ordering) -> Aba {
-        Aba { ptr: self.ptr.load(ordering) }
-    }
-
-    fn compare_exchange_weak(&self,
-                             old: Aba,
-                             new: Aba,
-                             success: Ordering,
-                             fail: Ordering)
-                             -> Result<Aba, Aba> {
-        // Test and test and set optimization
-        let mut dblcheck = self.ptr.load(fail);
-        if dblcheck == old.ptr {
-            match self.ptr
-                .compare_exchange_weak(old.ptr, new.ptr, success, fail) {
-                Err(x) => dblcheck = x,
-                Ok(x) => return Ok(Aba { ptr: x }),
-            }
-        }
-        return Err(Aba { ptr: dblcheck });
-    }
-}
 
 const MAX_EXP: usize = 6;
 
@@ -111,13 +49,13 @@ impl Node {
 }
 
 pub struct Stack {
-    head: DontShare<AtomicAba>,
+    head: AtomicAba,
 }
 
 impl Stack {
     #[inline(always)]
     pub fn new() -> Self {
-        Stack { head: DontShare::new(AtomicAba::new(Aba::new(ptr::null_mut(), 0))) }
+        Stack { head: AtomicAba::new(Aba::new(ptr::null_mut(), 0)) }
     }
 
     pub fn empty(&self) -> bool {
@@ -202,5 +140,67 @@ impl Stack {
             }
             return head.ptr();
         }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Aba {
+    ptr: u64,
+}
+
+impl Aba {
+    #[inline(always)]
+    fn new(node: *mut Node, tag: u32) -> Self {
+        unsafe {
+            let node_bits: u64 = mem::transmute(node);
+            let tag_bits: u64 = (tag & ((1 << 23) - 1)) as u64;
+            Aba { ptr: tag_bits | node_bits << 16 }
+        }
+    }
+    fn ptr(&self) -> *mut Node {
+        unsafe {
+            let node_bits = (self.ptr >> 23) << 7;
+            mem::transmute(node_bits)
+        }
+    }
+    fn tag(&self) -> u32 {
+        let tag_bits: u64 = self.ptr & ((1 << 23) - 1);
+        tag_bits as u32
+    }
+}
+impl PartialEq for Aba {
+    fn eq(&self, other: &Aba) -> bool {
+        self.ptr == other.ptr
+    }
+}
+struct AtomicAba {
+    ptr: AtomicU64,
+}
+impl AtomicAba {
+    #[inline(always)]
+    fn new(ptr: Aba) -> Self {
+        AtomicAba { ptr: AtomicU64::new(ptr.ptr) }
+    }
+
+    fn load(&self, ordering: Ordering) -> Aba {
+        Aba { ptr: self.ptr.load(ordering) }
+    }
+
+    fn compare_exchange_weak(&self,
+                             old: Aba,
+                             new: Aba,
+                             success: Ordering,
+                             fail: Ordering)
+                             -> Result<Aba, Aba> {
+        // Test and test and set optimization
+        let mut dblcheck = self.ptr.load(fail);
+        if dblcheck == old.ptr {
+            match self.ptr
+                .compare_exchange_weak(old.ptr, new.ptr, success, fail) {
+                Err(x) => dblcheck = x,
+                Ok(x) => return Ok(Aba { ptr: x }),
+            }
+        }
+        return Err(Aba { ptr: dblcheck });
     }
 }

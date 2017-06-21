@@ -17,6 +17,7 @@ use std::thread;
 
 use sleepfast;
 
+use dontshare::DontShare;
 use stack::{Node, Stack};
 use try_mutex::{TryMutex, SpinState};
 use weakrand;
@@ -24,8 +25,8 @@ use weakrand;
 const MAX_EXP: usize = 4;
 
 pub struct RawMutex {
-    stack: Stack,
-    lock: TryMutex,
+    stack: DontShare<Stack>,
+    lock: DontShare<TryMutex>,
 }
 unsafe impl Send for RawMutex {}
 unsafe impl Sync for RawMutex {}
@@ -37,8 +38,8 @@ pub struct RawMutexGuard<'r> {
 impl RawMutex {
     pub fn new() -> Self {
         RawMutex {
-            stack: Stack::new(),
-            lock: TryMutex::new(),
+            stack: DontShare::new(Stack::new()),
+            lock: DontShare::new(TryMutex::new()),
         }
     }
 }
@@ -51,7 +52,7 @@ impl RawMutex {
         {
             let ts = log::get_ts();
             acquired = self.lock.spin_try_acquire();
-            log::try_acquire_event(ts, &self.lock, acquired);
+            log::try_acquire_event(ts, &*self.lock, acquired);
         }
         if acquired {
             return RawMutexGuard { lock: self };
@@ -63,7 +64,7 @@ impl RawMutex {
             unsafe {
                 let id = log::get_ts();
                 self.stack.push(&mut node);
-                log::push_event(id, &self.stack, &node);
+                log::push_event(id, &*self.stack, &node);
             }
 
             self.flush();
@@ -81,7 +82,7 @@ impl RawMutex {
         {
             let id = log::get_ts();
             empty = self.stack.empty();
-            log::empty_event(id, &self.stack, empty);
+            log::empty_event(id, &*self.stack, empty);
         }
         if empty {
             return;
@@ -94,7 +95,7 @@ impl RawMutex {
             {
                 let id = log::get_ts();
                 acquired = self.lock.try_acquire();
-                log::try_acquire_event(id, &self.lock, acquired);
+                log::try_acquire_event(id, &*self.lock, acquired);
             }
             if !acquired {
                 return;
@@ -103,7 +104,7 @@ impl RawMutex {
             {
                 let id = log::get_ts();
                 popped = self.stack.pop();
-                log::pop_event(id, &self.stack, popped);
+                log::pop_event(id, &*self.stack, popped);
             }
             if popped != ptr::null_mut() {
                 unsafe {
@@ -117,7 +118,7 @@ impl RawMutex {
 
             let id = log::get_ts();
             let spin_state = self.lock.release();
-            log::release_event(id, &self.lock);
+            log::release_event(id, &*self.lock);
 
             if SpinState::Spinner == spin_state {
                 return;
@@ -126,7 +127,7 @@ impl RawMutex {
             {
                 let id = log::get_ts();
                 empty = self.stack.empty();
-                log::empty_event(id, &self.stack, empty);
+                log::empty_event(id, &*self.stack, empty);
             }
             if empty {
                 return;
@@ -160,7 +161,7 @@ impl<'r> Drop for RawMutexGuard<'r> {
         {
             let id = log::get_ts();
             spin_state = self.lock.lock.release();
-            log::release_event(id, &self.lock.lock);
+            log::release_event(id, &*self.lock.lock);
         }
 
         if spin_state != SpinState::Spinner {
