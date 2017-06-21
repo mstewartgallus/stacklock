@@ -83,7 +83,6 @@ impl Notifier {
                         thread::yield_now();
                     }
 
-                    // Unroll the loop for better performance
                     let spins = weakrand::rand(1, exp);
 
                     sleepfast::pause_times(spins as usize);

@@ -190,13 +190,14 @@ impl TryMutex {
             counter = counter.wrapping_add(1);
         }
 
+        if !state.has_spinner() {
+            return false;
+        }
+
         // temporarily set no spinners (others will refresh the bit on
         // later spins)
         counter = 0;
         loop {
-            if !state.has_spinner() {
-                break;
-            }
             if state.locked() {
                 match self.state.compare_exchange_weak(state,
                                                        state.set_has_no_spinner(),
@@ -205,6 +206,9 @@ impl TryMutex {
                     Ok(_) => break,
                     Err(newstate) => {
                         state = newstate;
+                        if !state.has_spinner() {
+                            break;
+                        }
                     }
                 }
             } else {
@@ -216,6 +220,9 @@ impl TryMutex {
                     Ok(_) => return true,
                     Err(newstate) => {
                         state = newstate;
+                        if !state.has_spinner() {
+                            break;
+                        }
                     }
                 }
             }
