@@ -33,6 +33,8 @@ extern crate weakrand;
 
 mod notifier;
 mod raw_mutex;
+mod try_mutex;
+mod stack_mutex;
 
 use std::cell::UnsafeCell;
 use std::marker::PhantomData;
