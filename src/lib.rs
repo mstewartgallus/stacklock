@@ -13,6 +13,7 @@
 // permissions and limitations under the License.
 //
 #![feature(asm)]
+#![feature(const_fn)]
 #![feature(integer_atomics)]
 #![feature(hint_core_should_pause)]
 
@@ -32,8 +33,6 @@ extern crate weakrand;
 
 mod notifier;
 mod raw_mutex;
-mod stack;
-mod try_mutex;
 
 use std::cell::UnsafeCell;
 use std::marker::PhantomData;

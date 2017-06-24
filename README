@@ -12,14 +12,12 @@ of delving into the OS threads spin on a memory location.  However,
 this can be slow on manycore machines.  For improved performance the
 CLH and MCS queue locks were invented.  Instead of one memory location
 multiple are used.  This novel algorithm uses a similar idea but
-instead uses an easily slottable datastructure.  Currently, the code
-uses a stack.
+instead uses a stack.
 
 So far performance numbers are ok.  GLibc's mutexes are twice as slow.
 The parking_lot crate is twice as faster.  Naive futexes are slower.
-HLE locks are faster.  The parking_lot crate is faster.  Future work
-should bring HLE performance improvements and try use some of
-parking_lot's ideas.
+HLE locks are faster.  Future work should bring HLE performance
+improvements and try use some of parking_lot's ideas.
 
 To investigate correctness of the algorithm three means are used.
 First, a test-suite.  Second, a TLA+ approximation of the algorithm is
