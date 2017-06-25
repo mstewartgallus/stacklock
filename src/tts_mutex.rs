@@ -17,12 +17,12 @@ use std::thread;
 use sleepfast;
 use weakrand;
 
-const NUM_LOOPS: usize = 30;
+const NUM_LOOPS: usize = 200;
 const MAX_EXP: usize = 8;
 
 const UNLOCKED: u32 = 0;
 const LOCKED: u32 = 1;
-const LOCKED_WITH_SPINNER: u32 = 2;
+const LOCKED_WITH_WAITER: u32 = 2;
 
 /// This is basically Ulrich-Drepper's futexes are tricky futex lock
 pub struct RawMutex {
@@ -41,89 +41,32 @@ impl RawMutex {
     }
 
     pub fn try_lock<'r>(&'r self) -> Option<RawMutexGuard<'r>> {
-        let mut counter = 0;
-        loop {
-            match self.val.load(Ordering::Relaxed) {
-                UNLOCKED => {
-                    if self.val
-                        .compare_exchange_weak(UNLOCKED,
-                                               LOCKED,
-                                               Ordering::SeqCst,
-                                               Ordering::Relaxed)
-                        .is_ok() {
-                        return Some(RawMutexGuard { lock: self });
-                    }
-                }
-                LOCKED => {
-                    // don't use result
-                    let _ = self.val.compare_exchange_weak(LOCKED,
-                                                           LOCKED_WITH_SPINNER,
-                                                           Ordering::SeqCst,
-                                                           Ordering::Relaxed);
-                }
-                LOCKED_WITH_SPINNER => {
-                    // do nothing
-                }
-                _ => {
-                    // should never happen
-                }
-            }
-
-            if counter > NUM_LOOPS {
-                break;
-            }
-
-            thread::yield_now();
-
-            let exp = if counter < MAX_EXP {
-                1 << counter
-            } else {
-                1 << MAX_EXP
-            };
-
-            counter = counter.wrapping_add(1);
-
-            let spins = weakrand::rand(1, exp);
-
-            sleepfast::pause_times(spins as usize);
+        if self.val
+            .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok() {
+            return Some(RawMutexGuard { lock: self });
         }
-        // reset spin bit
-        if self.val.load(Ordering::Relaxed) != LOCKED {
-            if self.val.swap(LOCKED, Ordering::SeqCst) == UNLOCKED {
-                return Some(RawMutexGuard { lock: self });
-            }
-        }
-
         return None;
     }
 
     pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
-        loop {
+        if let Err(newval) = self.val
+            .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed) {
+            if newval == LOCKED {
+                if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                    return RawMutexGuard { lock: self };
+                }
+            }
+        } else {
+            return RawMutexGuard { lock: self };
+        }
+
+        'big_loop: loop {
             let mut counter = 0;
             loop {
-                match self.val.load(Ordering::Relaxed) {
-                    UNLOCKED => {
-                        if self.val
-                            .compare_exchange_weak(UNLOCKED,
-                                                   LOCKED,
-                                                   Ordering::SeqCst,
-                                                   Ordering::Relaxed)
-                            .is_ok() {
-                            return RawMutexGuard { lock: self };
-                        }
-                    }
-                    LOCKED => {
-                        // don't use result
-                        let _ = self.val.compare_exchange_weak(LOCKED,
-                                                               LOCKED_WITH_SPINNER,
-                                                               Ordering::SeqCst,
-                                                               Ordering::Relaxed);
-                    }
-                    LOCKED_WITH_SPINNER => {
-                        // do nothing
-                    }
-                    _ => {
-                        // should never happen
+                if UNLOCKED == self.val.load(Ordering::Relaxed) {
+                    if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                        break 'big_loop;
                     }
                 }
 
@@ -148,19 +91,21 @@ impl RawMutex {
             // reset spin bit
             if self.val.load(Ordering::Relaxed) != LOCKED {
                 if self.val.swap(LOCKED, Ordering::SeqCst) == UNLOCKED {
-                    return RawMutexGuard { lock: self };
+                    break 'big_loop;
                 }
             }
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.val);
-                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, 2, 0);
+                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, LOCKED_WITH_WAITER, 0);
             }
         }
+
+        return RawMutexGuard { lock: self };
     }
 }
 impl<'r> Drop for RawMutexGuard<'r> {
     fn drop(&mut self) {
-        if self.lock.val.swap(UNLOCKED, Ordering::SeqCst) == LOCKED_WITH_SPINNER {
+        if self.lock.val.swap(UNLOCKED, Ordering::SeqCst) == LOCKED_WITH_WAITER {
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.lock.val);
                 syscall!(FUTEX, val_ptr, FUTEX_WAKE_PRIVATE, 1);
