@@ -22,6 +22,10 @@ use try_mutex::TryMutex;
 
 const MAX_EXP: usize = 8;
 
+// A simple test-and test and set lock causes lots of intercore
+// commmunication when contended by lots of threads.  A StackMutex has
+// a bunch of overhead.  Use a test-and-test and set lock that falls
+// back to a StackMutex under heavy contention.
 pub struct RawMutex {
     try_mutex: DontShare<TryMutex>,
     fallback: DontShare<StackMutex>,

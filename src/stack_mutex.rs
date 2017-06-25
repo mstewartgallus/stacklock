@@ -25,6 +25,11 @@ use notifier::Notifier;
 
 const MAX_EXP: usize = 8;
 
+/// A queue lock like the CLH or MCS ones but that use a stack
+/// instead.  This algorithm is a bit hairy but is a fairly straight
+/// forward translation of the TLA+ specification under
+/// tla/StackLock.tla to use weak compare and swap and a Treiber
+/// Stack.
 pub struct StackMutex {
     head: AtomicAba,
 }
@@ -48,6 +53,7 @@ impl StackMutex {
         let mut counter = 0;
         loop {
             if head.locked() {
+                // On a locked stack push the node
                 *node.next = head.ptr();
                 let new = Aba::new(&mut node, head.tag().wrapping_add(1), true);
 
@@ -58,6 +64,7 @@ impl StackMutex {
                     break;
                 }
             } else {
+                // Acquire an unlocked stack
                 let new = Aba::new(head.ptr(), head.tag().wrapping_add(1), true);
 
                 if let Err(newhead) = self.head
@@ -95,6 +102,7 @@ impl<'r> Drop for StackMutexGuard<'r> {
             let mut counter = 0;
             loop {
                 if ptr::null_mut() == head.ptr() {
+                    // Release the lock on an empty stack
                     let new = Aba::new(ptr::null_mut(), head.tag().wrapping_add(1), false);
                     if let Err(newhead) = self.lock
                         .head
@@ -104,6 +112,7 @@ impl<'r> Drop for StackMutexGuard<'r> {
                         break;
                     }
                 } else {
+                    // Pop off a nonempty stack and pass off the lock
                     atomic::fence(Ordering::Acquire);
                     let next;
                     {
@@ -167,6 +176,9 @@ struct Aba {
     ptr: u64,
 }
 
+// Because of pointer alignment to 128 bytes 7 end bits are always zero.
+const ZERO_BITS: u64 = 7;
+
 const LOCKED_OFFSET: u64 = 0;
 const LOCKED_SIZE: u64 = 1;
 
@@ -185,7 +197,7 @@ impl Aba {
             let tag_bits: u64 = (tag & ((1 << TAG_SIZE) - 1)) as u64;
             Aba {
                 ptr: lock_bit << LOCKED_OFFSET | tag_bits << TAG_OFFSET |
-                     (node_bits >> 7) << PTR_OFFSET,
+                     (node_bits >> ZERO_BITS) << PTR_OFFSET,
             }
         }
     }
@@ -200,7 +212,7 @@ impl Aba {
 
     fn ptr(&self) -> *mut Node {
         unsafe {
-            let node_bits = self.get(PTR_OFFSET, PTR_SIZE) << 7;
+            let node_bits = self.get(PTR_OFFSET, PTR_SIZE) << ZERO_BITS;
             mem::transmute(node_bits)
         }
     }
