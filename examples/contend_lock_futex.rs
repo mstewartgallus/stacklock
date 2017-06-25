@@ -45,6 +45,10 @@ impl RawMutex {
     }
 
     fn try_lock<'r>(&'r self) -> Option<RawMutexGuard<'r>> {
+        if self.val.load(Ordering::Relaxed) != UNLOCKED {
+            return None;
+        }
+
         if self.val
             .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok() {
