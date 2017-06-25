@@ -6,6 +6,7 @@ mod contend;
 use stacklock::Mutex;
 
 use criterion::Criterion;
+use std::env;
 use std::sync::Arc;
 
 use contend::{TestCase, contend};
@@ -27,7 +28,18 @@ impl TestCase for MyTestCase {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    let num_threads: Vec<usize> =
+        args.iter().skip(1).map(|s| s.parse::<usize>().unwrap()).collect();
+
+    let test_borrow = &contend::STANDARD_TESTS;
+    let inputs;
+    if num_threads.len() > 0 {
+        inputs = num_threads.as_slice().iter();
+    } else {
+        inputs = test_borrow.iter();
+    }
     Criterion::default().bench_function_over_inputs("contend_lock_stacklock",
                                                     |b, &&n| contend::<MyTestCase>(b, n),
-                                                    contend::STANDARD_TESTS.iter());
+                                                    inputs);
 }
