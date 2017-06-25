@@ -19,12 +19,10 @@ The parking_lot crate is twice as faster.  Naive futexes are slower.
 HLE locks are faster.  Future work should bring HLE performance
 improvements and try use some of parking_lot's ideas.
 
-To investigate correctness of the algorithm three means are used.
+To investigate correctness of the algorithm two means are used.
 First, a test-suite.  Second, a TLA+ approximation of the algorithm is
 used to exhaustively check for correctness under a small number of
-threads.  Third, a configuration is made that logs a history of
-transactions to a file which can then be checked for linearizability
-by a system such as Knossos.
+threads.
 
 stacklock is licensed under the Apache License, Version 2.0 (the
 "License"); you may not use qlock except in compliance with
