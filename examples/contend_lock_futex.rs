@@ -1,5 +1,4 @@
 #![feature(integer_atomics)]
-#![feature(hint_core_should_pause)]
 
 extern crate criterion;
 
@@ -14,94 +13,102 @@ use criterion::Criterion;
 
 mod contend;
 
+use contend::{TestCase, contend};
 use dontshare::DontShare;
-
 use std::mem;
 use std::sync::Arc;
-use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
-use contend::{TestCase, contend};
+const NUM_LOOPS: usize = 200;
+const MAX_EXP: usize = 8;
 
-const NUM_LOOPS: usize = 30;
-const NUM_PAUSES: u64 = 20;
+const UNLOCKED: u32 = 0;
+const LOCKED: u32 = 1;
+const LOCKED_WITH_WAITER: u32 = 2;
 
-struct Futex {
+/// This is basically Ulrich-Drepper's futexes are tricky futex lock
+pub struct RawMutex {
     val: DontShare<AtomicU32>,
 }
-
-struct FutexGuard<'r> {
-    lock: &'r Futex,
+pub struct RawMutexGuard<'r> {
+    lock: &'r RawMutex,
 }
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
-impl Futex {
-    #[inline(never)]
-    fn new() -> Futex {
-        Futex { val: DontShare::new(AtomicU32::new(0)) }
+impl RawMutex {
+    #[inline(always)]
+    pub fn new() -> RawMutex {
+        RawMutex { val: DontShare::new(AtomicU32::new(UNLOCKED)) }
     }
 
-    #[inline(never)]
-    fn lock<'r>(&'r self) -> FutexGuard<'r> {
-        let mut result;
-        match self.val.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Relaxed) {
-            Err(x) => result = x,
-            Ok(_) => return FutexGuard { lock: self },
+    pub fn try_lock<'r>(&'r self) -> Option<RawMutexGuard<'r>> {
+        if self.val
+            .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok() {
+            return Some(RawMutexGuard { lock: self });
         }
+        return None;
+    }
 
-        if result != 2 {
-            result = self.val.swap(2, Ordering::Release);
-        }
-        if result == 0 {
-            atomic::fence(Ordering::Acquire);
-            return FutexGuard { lock: self };
-        }
-
-        atomic::hint_core_should_pause();
-
-        loop {
-            let mut counter = NUM_LOOPS;
-            loop {
-                let mut inner_counter = weakrand::rand(0, NUM_PAUSES);
-                loop {
-                    if self.val.load(Ordering::Relaxed) != 2 {
-                        result = self.val.swap(2, Ordering::Release);
-                        if 0 == result {
-                            atomic::fence(Ordering::Acquire);
-                            return FutexGuard { lock: self };
-                        }
-                    }
-                    match inner_counter.checked_sub(1) {
-                        None => break,
-                        Some(newcounter) => {
-                            inner_counter = newcounter;
-                        }
-                    }
-                    atomic::hint_core_should_pause();
+    pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
+        if let Err(newval) = self.val
+            .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed) {
+            if newval == LOCKED {
+                if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                    return RawMutexGuard { lock: self };
                 }
-                match counter.checked_sub(1) {
-                    None => break,
-                    Some(newcounter) => {
-                        counter = newcounter;
-                    }
-                }
-                thread::yield_now();
             }
+        } else {
+            return RawMutexGuard { lock: self };
+        }
 
+        'big_loop: loop {
+            let mut counter = 0;
+            loop {
+                if UNLOCKED == self.val.load(Ordering::Relaxed) {
+                    if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                        break 'big_loop;
+                    }
+                }
+
+                if counter > NUM_LOOPS {
+                    break;
+                }
+
+                thread::yield_now();
+
+                let exp = if counter < MAX_EXP {
+                    1 << counter
+                } else {
+                    1 << MAX_EXP
+                };
+
+                counter = counter.wrapping_add(1);
+
+                let spins = weakrand::rand(1, exp);
+
+                sleepfast::pause_times(spins as usize);
+            }
+            // reset spin bit
+            if self.val.load(Ordering::Relaxed) != LOCKED {
+                if self.val.swap(LOCKED, Ordering::SeqCst) == UNLOCKED {
+                    break 'big_loop;
+                }
+            }
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.val);
-                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, 2, 0);
+                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, LOCKED_WITH_WAITER, 0);
             }
         }
+
+        return RawMutexGuard { lock: self };
     }
 }
-impl<'r> Drop for FutexGuard<'r> {
-    #[inline(never)]
+impl<'r> Drop for RawMutexGuard<'r> {
     fn drop(&mut self) {
-        if self.lock.val.fetch_sub(1, Ordering::Release) != 1 {
-            self.lock.val.store(0, Ordering::Release);
+        if self.lock.val.swap(UNLOCKED, Ordering::SeqCst) == LOCKED_WITH_WAITER {
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.lock.val);
                 syscall!(FUTEX, val_ptr, FUTEX_WAKE_PRIVATE, 1);
@@ -113,10 +120,10 @@ impl<'r> Drop for FutexGuard<'r> {
 enum FutexTestCase {}
 
 impl TestCase for FutexTestCase {
-    type TestType = Arc<Futex>;
+    type TestType = Arc<RawMutex>;
 
     fn create_value() -> Self::TestType {
-        Arc::new(Futex::new())
+        Arc::new(RawMutex::new())
     }
     fn do_stuff_with_value(value: &Self::TestType, times: usize) {
         let borrowed = &*value;
