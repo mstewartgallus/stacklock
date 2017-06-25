@@ -88,12 +88,6 @@ impl RawMutex {
 
                 sleepfast::pause_times(spins as usize);
             }
-            // reset spin bit
-            if self.val.load(Ordering::Relaxed) != LOCKED {
-                if self.val.swap(LOCKED, Ordering::SeqCst) == UNLOCKED {
-                    break 'big_loop;
-                }
-            }
             unsafe {
                 let val_ptr: usize = mem::transmute(&self.val);
                 syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, LOCKED_WITH_WAITER, 0);
