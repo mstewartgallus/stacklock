@@ -29,9 +29,6 @@ const LOCKED_WITH_WAITER: u32 = 2;
 pub struct RawMutex {
     val: AtomicU32,
 }
-pub struct RawMutexGuard<'r> {
-    lock: &'r RawMutex,
-}
 const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
@@ -41,25 +38,25 @@ impl RawMutex {
         RawMutex { val: AtomicU32::new(UNLOCKED) }
     }
 
-    pub fn try_lock<'r>(&'r self) -> Option<RawMutexGuard<'r>> {
+    pub fn try_lock(&self) -> bool {
         if self.val.load(Ordering::Relaxed) != UNLOCKED {
-            return None;
+            return false;
         }
 
         if self.val
             .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok() {
-            return Some(RawMutexGuard { lock: self });
+            return true;
         }
-        return None;
+        return false;
     }
 
-    pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
+    pub fn lock(&self) {
         {
             let mut counter = 0;
             loop {
-                if let Some(guard) = self.try_lock() {
-                    return guard;
+                if self.try_lock() {
+                    return;
                 }
 
                 if counter > INITIAL_LOOPS {
@@ -84,7 +81,7 @@ impl RawMutex {
 
         if UNLOCKED == self.val.load(Ordering::Relaxed) {
             if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
-                return RawMutexGuard { lock: self };
+                return;
             }
         }
 
@@ -121,15 +118,12 @@ impl RawMutex {
                 sleepfast::pause_times(spins as usize);
             }
         }
-
-        return RawMutexGuard { lock: self };
     }
-}
-impl<'r> Drop for RawMutexGuard<'r> {
-    fn drop(&mut self) {
-        if self.lock.val.swap(UNLOCKED, Ordering::SeqCst) == LOCKED_WITH_WAITER {
+
+    pub fn unlock(&self) {
+        if self.val.swap(UNLOCKED, Ordering::SeqCst) == LOCKED_WITH_WAITER {
             unsafe {
-                let val_ptr: usize = mem::transmute(&self.lock.val);
+                let val_ptr: usize = mem::transmute(&self.val);
                 syscall!(FUTEX, val_ptr, FUTEX_WAKE_PRIVATE, 1);
             }
         }

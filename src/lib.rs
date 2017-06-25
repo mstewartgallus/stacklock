@@ -40,7 +40,7 @@ use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
-use raw_mutex::{RawMutex, RawMutexGuard};
+use raw_mutex::RawMutex;
 
 pub struct Mutex<T: ?Sized> {
     mutex: RawMutex,
@@ -50,7 +50,6 @@ unsafe impl<T: Send> Send for Mutex<T> {}
 unsafe impl<T: Send> Sync for Mutex<T> {}
 
 pub struct MutexGuard<'r, T: ?Sized + 'r> {
-    _guard: RawMutexGuard<'r>,
     lock: &'r Mutex<T>,
     _phantom: PhantomData<&'r mut T>,
 }
@@ -70,8 +69,8 @@ impl<T> Mutex<T> {
 
 impl<T: ?Sized> Mutex<T> {
     pub fn lock<'r>(&'r self) -> MutexGuard<'r, T> {
+        self.mutex.lock();
         return MutexGuard {
-            _guard: self.mutex.lock(),
             lock: self,
             _phantom: PhantomData,
         };
@@ -94,5 +93,11 @@ impl<'a, T: ?Sized + 'a> Deref for MutexGuard<'a, T> {
 impl<'a, T: ?Sized + 'a> DerefMut for MutexGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+impl<'r, T: ?Sized + 'r> Drop for MutexGuard<'r, T> {
+    fn drop(&mut self) {
+        self.lock.mutex.unlock();
     }
 }

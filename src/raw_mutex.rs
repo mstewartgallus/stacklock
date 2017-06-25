@@ -20,7 +20,6 @@ use tts_mutex;
 
 use std::thread;
 
-
 const MAX_EXP: usize = 8;
 const LOOPS: usize = 10;
 
@@ -35,10 +34,6 @@ pub struct RawMutex {
 unsafe impl Send for RawMutex {}
 unsafe impl Sync for RawMutex {}
 
-pub struct RawMutexGuard<'r> {
-    _guard: tts_mutex::RawMutexGuard<'r>,
-}
-
 impl RawMutex {
     #[inline(always)]
     pub fn new() -> Self {
@@ -48,12 +43,12 @@ impl RawMutex {
         }
     }
 
-    pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
+    pub fn lock(&self) {
         // Spin a bit before falling back to the stack lock
         let mut counter = 0;
         loop {
-            if let Some(guard) = self.spin_mutex.try_lock() {
-                return RawMutexGuard { _guard: guard };
+            if self.spin_mutex.try_lock() {
+                return;
             }
             if counter > LOOPS {
                 break;
@@ -73,12 +68,16 @@ impl RawMutex {
             sleepfast::pause_times(spins as usize);
         }
 
-        let guard;
         {
-            let _fallback_guard = self.fallback.lock();
+            self.fallback.lock();
 
-            guard = self.spin_mutex.lock();
+            self.spin_mutex.lock();
+
+            self.fallback.unlock();
         }
-        return RawMutexGuard { _guard: guard };
+    }
+
+    pub fn unlock(&self) {
+        self.spin_mutex.unlock();
     }
 }

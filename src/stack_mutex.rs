@@ -36,17 +36,13 @@ pub struct RawMutex {
 unsafe impl Send for RawMutex {}
 unsafe impl Sync for RawMutex {}
 
-pub struct RawMutexGuard<'r> {
-    lock: &'r RawMutex,
-}
-
 impl RawMutex {
     #[inline(always)]
     pub fn new() -> Self {
         RawMutex { head: AtomicAba::new(Aba::new(ptr::null_mut(), 0, false)) }
     }
 
-    pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
+    pub fn lock(&self) {
         let mut node = Node::new();
 
         let mut head = self.head.load(Ordering::Relaxed);
@@ -71,7 +67,7 @@ impl RawMutex {
                     .compare_exchange_weak(head, new, Ordering::SeqCst, Ordering::Relaxed) {
                     head = newhead;
                 } else {
-                    return RawMutexGuard { lock: self };
+                    return;
                 }
             }
 
@@ -90,13 +86,11 @@ impl RawMutex {
         }
 
         node.wait();
-        return RawMutexGuard { lock: self };
     }
-}
-impl<'r> Drop for RawMutexGuard<'r> {
-    fn drop(&mut self) {
+
+    pub fn unlock(&self) {
         unsafe {
-            let mut head = self.lock.head.load(Ordering::Relaxed);
+            let mut head = self.head.load(Ordering::Relaxed);
             assert!(head.locked());
 
             let mut counter = 0;
@@ -104,8 +98,7 @@ impl<'r> Drop for RawMutexGuard<'r> {
                 if ptr::null_mut() == head.ptr() {
                     // Release the lock on an empty stack
                     let new = Aba::new(ptr::null_mut(), head.tag().wrapping_add(1), false);
-                    if let Err(newhead) = self.lock
-                        .head
+                    if let Err(newhead) = self.head
                         .compare_exchange_weak(head, new, Ordering::SeqCst, Ordering::Relaxed) {
                         head = newhead;
                     } else {
@@ -120,8 +113,7 @@ impl<'r> Drop for RawMutexGuard<'r> {
                         next = *head_ref.next;
                     }
                     let new = Aba::new(next, head.tag().wrapping_add(1), true);
-                    if let Err(newhead) = self.lock
-                        .head
+                    if let Err(newhead) = self.head
                         .compare_exchange_weak(head, new, Ordering::SeqCst, Ordering::Relaxed) {
                         head = newhead;
                     } else {
