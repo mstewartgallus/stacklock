@@ -30,23 +30,23 @@ const MAX_EXP: usize = 8;
 /// forward translation of the TLA+ specification under
 /// tla/StackLock.tla to use weak compare and swap and a Treiber
 /// Stack.
-pub struct StackMutex {
+pub struct RawMutex {
     head: AtomicAba,
 }
-unsafe impl Send for StackMutex {}
-unsafe impl Sync for StackMutex {}
+unsafe impl Send for RawMutex {}
+unsafe impl Sync for RawMutex {}
 
-pub struct StackMutexGuard<'r> {
-    lock: &'r StackMutex,
+pub struct RawMutexGuard<'r> {
+    lock: &'r RawMutex,
 }
 
-impl StackMutex {
+impl RawMutex {
     #[inline(always)]
     pub fn new() -> Self {
-        StackMutex { head: AtomicAba::new(Aba::new(ptr::null_mut(), 0, false)) }
+        RawMutex { head: AtomicAba::new(Aba::new(ptr::null_mut(), 0, false)) }
     }
 
-    pub fn lock<'r>(&'r self) -> StackMutexGuard<'r> {
+    pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
         let mut node = Node::new();
 
         let mut head = self.head.load(Ordering::Relaxed);
@@ -71,7 +71,7 @@ impl StackMutex {
                     .compare_exchange_weak(head, new, Ordering::SeqCst, Ordering::Relaxed) {
                     head = newhead;
                 } else {
-                    return StackMutexGuard { lock: self };
+                    return RawMutexGuard { lock: self };
                 }
             }
 
@@ -90,10 +90,10 @@ impl StackMutex {
         }
 
         node.wait();
-        return StackMutexGuard { lock: self };
+        return RawMutexGuard { lock: self };
     }
 }
-impl<'r> Drop for StackMutexGuard<'r> {
+impl<'r> Drop for RawMutexGuard<'r> {
     fn drop(&mut self) {
         unsafe {
             let mut head = self.lock.head.load(Ordering::Relaxed);
