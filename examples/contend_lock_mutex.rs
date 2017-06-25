@@ -3,12 +3,13 @@ extern crate criterion;
 mod contend;
 
 use criterion::Criterion;
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 use contend::{TestCase, contend};
 
-enum MutexTestCase {}
+enum MyTestCase {}
 
-impl TestCase for MutexTestCase {
+impl TestCase for MyTestCase {
     type TestType = Arc<Mutex<()>>;
 
     fn create_value() -> Self::TestType {
@@ -24,7 +25,8 @@ impl TestCase for MutexTestCase {
 }
 
 fn main() {
+    let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_mutex",
-                                                    |b, &&n| contend::<MutexTestCase>(b, n),
+                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
                                                     contend::STANDARD_TESTS.iter());
 }

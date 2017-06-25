@@ -10,6 +10,7 @@ mod contend;
 use dontshare::DontShare;
 
 use criterion::Criterion;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -95,9 +96,9 @@ impl<'r> Drop for HleGuard<'r> {
     }
 }
 
-enum HleTestCase {}
+enum MyTestCase {}
 
-impl TestCase for HleTestCase {
+impl TestCase for MyTestCase {
     type TestType = Arc<Hle>;
 
     fn create_value() -> Self::TestType {
@@ -113,7 +114,8 @@ impl TestCase for HleTestCase {
 }
 
 fn main() {
+    let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_hle",
-                                                    |b, &&n| contend::<HleTestCase>(b, n),
+                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
                                                     contend::STANDARD_TESTS.iter());
 }

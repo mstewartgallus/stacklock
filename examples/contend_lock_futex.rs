@@ -15,6 +15,7 @@ mod contend;
 
 use contend::{TestCase, contend};
 use dontshare::DontShare;
+use std::marker::PhantomData;
 use std::mem;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -141,9 +142,9 @@ impl<'r> Drop for RawMutexGuard<'r> {
     }
 }
 
-enum FutexTestCase {}
+enum MyTestCase {}
 
-impl TestCase for FutexTestCase {
+impl TestCase for MyTestCase {
     type TestType = Arc<RawMutex>;
 
     fn create_value() -> Self::TestType {
@@ -159,7 +160,8 @@ impl TestCase for FutexTestCase {
 }
 
 fn main() {
+    let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_futex",
-                                                    |b, &&n| contend::<FutexTestCase>(b, n),
+                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
                                                     contend::STANDARD_TESTS.iter());
 }

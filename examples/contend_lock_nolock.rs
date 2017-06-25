@@ -5,8 +5,10 @@ mod contend;
 use contend::{TestCase, contend};
 use criterion::Criterion;
 
-enum EmptyTestCase {}
-impl TestCase for EmptyTestCase {
+use std::marker::PhantomData;
+
+enum MyTestCase {}
+impl TestCase for MyTestCase {
     type TestType = ();
 
     fn create_value() -> () {
@@ -19,7 +21,8 @@ impl TestCase for EmptyTestCase {
 }
 
 fn main() {
+    let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_nolock",
-                                                    |b, &&n| contend::<EmptyTestCase>(b, n),
+                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
                                                     contend::STANDARD_TESTS.iter());
 }

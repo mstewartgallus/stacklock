@@ -12,9 +12,7 @@ pub trait TestCase {
 
 pub const STANDARD_TESTS: [usize; 4] = [2, 3, 4, 20];
 
-pub fn contend<T: TestCase + 'static, B>(_: PhantomData<T>, b: B, numthreads: usize)
-    where B: FnOnce(&mut FnMut())
-{
+pub fn contend<T: TestCase + 'static, B>(_: PhantomData<T>, b: B, numthreads: usize) where B: FnOnce(&mut FnMut()) {
     let lock: T::TestType = T::create_value();
 
     let mut children = Vec::new();

@@ -14,6 +14,7 @@ use criterion::Criterion;
 use dontshare::DontShare;
 
 use std::mem;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
@@ -119,9 +120,9 @@ impl<'r> Drop for TicketGuard<'r> {
     }
 }
 
-enum TicketTestCase {}
+enum MyTestCase {}
 
-impl TestCase for TicketTestCase {
+impl TestCase for MyTestCase {
     type TestType = Arc<Ticket>;
 
     fn create_value() -> Self::TestType {
@@ -137,7 +138,8 @@ impl TestCase for TicketTestCase {
 }
 
 fn main() {
+    let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_ticket",
-                                                    |b, &&n| contend::<TicketTestCase>(b, n),
+                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
                                                     contend::STANDARD_TESTS.iter());
 }

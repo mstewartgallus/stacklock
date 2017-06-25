@@ -1,13 +1,11 @@
-extern crate criterion;
 extern crate stacklock;
 
 mod contend;
 
 use stacklock::Mutex;
 
-use criterion::Criterion;
-use std::marker::PhantomData;
 use std::env;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use contend::{TestCase, contend};
@@ -40,8 +38,14 @@ fn main() {
     } else {
         inputs = test_borrow.iter();
     }
-    let phantom: PhantomData<MyTestCase> = PhantomData;
-    Criterion::default().bench_function_over_inputs("contend_lock_stacklock",
-                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
-                                                    inputs);
+    for &input in inputs {
+        let phantom: PhantomData<MyTestCase> = PhantomData;
+        contend(phantom,
+                |f| {
+                    for _ in 0..1000 {
+                        f();
+                    }
+                },
+                input);
+    }
 }
