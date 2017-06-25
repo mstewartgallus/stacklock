@@ -147,11 +147,11 @@
 	<g transform="translate(139.0,76.6)" style="stroke:none; fill:black; font-family:Helvetica; font-size:12.00pt; text-anchor:start">
 		<text>median</text>
 	</g>
-	<path  d='M88.5,72.1 L130.7,72.1 M71.9,618.8 L71.9,618.5 M280.2,543.2 L280.2,542.3 M428.0,486.0 L428.0,482.0 
-		M1255.0,112.2 L1255.0,75.8  h0.01'/>	<use xlink:href='#gpPt6' transform='translate(71.9,618.8) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(280.2,543.0) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(428.0,484.1) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(1255.0,95.5) scale(3.38)'/>
+	<path  d='M88.5,72.1 L130.7,72.1 M71.9,617.0 L71.9,616.6 M280.2,539.7 L280.2,536.4 M428.0,481.0 L428.0,476.6 
+		M1255.0,122.1 L1255.0,84.6  h0.01'/>	<use xlink:href='#gpPt6' transform='translate(71.9,616.9) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(280.2,538.3) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(428.0,478.7) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(1255.0,99.8) scale(3.38)'/>
 	<use xlink:href='#gpPt6' transform='translate(109.6,72.1) scale(3.38)'/>
 </g>
 	</g>

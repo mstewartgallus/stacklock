@@ -140,11 +140,11 @@
 	<g transform="translate(139.0,76.6)" style="stroke:none; fill:black; font-family:Helvetica; font-size:12.00pt; text-anchor:start">
 		<text>slope</text>
 	</g>
-	<path  d='M88.5,72.1 L130.7,72.1 M71.9,645.4 L71.9,639.8 M280.2,566.6 L280.2,562.3 M428.0,497.0 L428.0,492.9 
-		M1255.0,138.5 L1255.0,135.8  h0.01'/>	<use xlink:href='#gpPt6' transform='translate(71.9,642.3) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(280.2,564.4) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(428.0,494.8) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(1255.0,137.1) scale(3.38)'/>
+	<path  d='M88.5,72.1 L130.7,72.1 M71.9,641.3 L71.9,636.7 M280.2,565.2 L280.2,561.5 M428.0,495.4 L428.0,492.5 
+		M1255.0,136.5 L1255.0,134.3  h0.01'/>	<use xlink:href='#gpPt6' transform='translate(71.9,638.7) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(280.2,563.4) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(428.0,493.9) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(1255.0,135.4) scale(3.38)'/>
 	<use xlink:href='#gpPt6' transform='translate(109.6,72.1) scale(3.38)'/>
 </g>
 	</g>

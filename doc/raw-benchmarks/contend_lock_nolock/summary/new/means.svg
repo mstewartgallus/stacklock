@@ -140,11 +140,11 @@
 	<g transform="translate(139.0,76.6)" style="stroke:none; fill:black; font-family:Helvetica; font-size:12.00pt; text-anchor:start">
 		<text>mean</text>
 	</g>
-	<path  d='M88.5,72.1 L130.7,72.1 M71.9,646.2 L71.9,640.7 M280.2,568.8 L280.2,560.3 M428.0,495.0 L428.0,441.3 
-		M1255.0,140.8 L1255.0,137.9  h0.01'/>	<use xlink:href='#gpPt6' transform='translate(71.9,643.5) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(280.2,565.2) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(428.0,472.2) scale(3.38)'/>
-	<use xlink:href='#gpPt6' transform='translate(1255.0,139.4) scale(3.38)'/>
+	<path  d='M88.5,72.1 L130.7,72.1 M71.9,645.0 L71.9,640.4 M280.2,570.1 L280.2,565.2 M428.0,499.8 L428.0,495.6 
+		M1255.0,140.0 L1255.0,136.0  h0.01'/>	<use xlink:href='#gpPt6' transform='translate(71.9,642.6) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(280.2,567.8) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(428.0,497.7) scale(3.38)'/>
+	<use xlink:href='#gpPt6' transform='translate(1255.0,138.0) scale(3.38)'/>
 	<use xlink:href='#gpPt6' transform='translate(109.6,72.1) scale(3.38)'/>
 </g>
 	</g>

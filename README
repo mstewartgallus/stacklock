@@ -14,20 +14,23 @@ CLH and MCS queue locks were invented.  Instead of one memory location
 multiple are used.  This novel algorithm uses a similar idea but
 instead uses a stack.
 
-So far performance numbers are ok.  GLibc's mutexes are twice as slow.
-The parking_lot crate is twice as faster.  A highly tuned
-implementation of futexes similar to the implementation in Ulrich
-Drepper's Futexes are Tricky is about the same.  HLE locks are faster.
-Future work should bring HLE performance improvements and try use some
-of parking_lot's ideas.
+So far performance numbers are ok.  GLibc's mutexes are 2.7 times
+slower.  The parking_lot crate is about 1.7 times faster.  A highly
+tuned implementation of futexes similar to the implementation in
+Ulrich Drepper's Futexes are Tricky is about the same in performance
+but drastically falls in performance in very heavily contended
+scenarios.  HLE locks are about 1.6 times faster.  Future work should bring HLE
+performance improvements and try use some of parking_lot's ideas.
 
-To investigate correctness of the algorithm two means are used.
+To investigate correctness of the algorithm two main methods are used.
 First, a test-suite.  Second, a TLA+ approximation of the algorithm is
 used to exhaustively check for correctness under a small number of
-threads.
+threads.  There are currently TLA+ specs for the stack lock algorithm
+and the Futexes are Tricky futex algorithm but not one for the
+combination of them both.
 
 stacklock is licensed under the Apache License, Version 2.0 (the
-"License"); you may not use qlock except in compliance with
+"License"); you may not use stacklock except in compliance with
 the License. You may obtain a copy of the License at
 
      http://www.apache.org/licenses/LICENSE-2.0
