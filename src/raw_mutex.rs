@@ -12,9 +12,17 @@
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
 use dontshare::DontShare;
+use weakrand;
+use sleepfast;
 
 use stack_mutex;
 use tts_mutex;
+
+use std::thread;
+
+
+const MAX_EXP: usize = 8;
+const LOOPS: usize = 10;
 
 // A simple test-and test and set lock causes lots of intercore
 // commmunication when contended by lots of threads.  A StackMutex has
@@ -41,8 +49,28 @@ impl RawMutex {
     }
 
     pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
-        if let Some(guard) = self.spin_mutex.try_lock() {
-            return RawMutexGuard { _guard: guard };
+        // Spin a bit before falling back to the stack lock
+        let mut counter = 0;
+        loop {
+            if let Some(guard) = self.spin_mutex.try_lock() {
+                return RawMutexGuard { _guard: guard };
+            }
+            if counter > LOOPS {
+                break;
+            }
+            thread::yield_now();
+
+            let exp = if counter < MAX_EXP {
+                1 << counter
+            } else {
+                1 << MAX_EXP
+            };
+
+            counter = counter.wrapping_add(1);
+
+            let spins = weakrand::rand(1, exp);
+
+            sleepfast::pause_times(spins as usize);
         }
 
         let guard;
