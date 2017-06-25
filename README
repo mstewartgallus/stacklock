@@ -15,9 +15,11 @@ multiple are used.  This novel algorithm uses a similar idea but
 instead uses a stack.
 
 So far performance numbers are ok.  GLibc's mutexes are twice as slow.
-The parking_lot crate is twice as faster.  Naive futexes are slower.
-HLE locks are faster.  Future work should bring HLE performance
-improvements and try use some of parking_lot's ideas.
+The parking_lot crate is twice as faster.  A highly tuned
+implementation of futexes similar to the implementation in Ulrich
+Drepper's Futexes are Tricky is about the same.  HLE locks are faster.
+Future work should bring HLE performance improvements and try use some
+of parking_lot's ideas.
 
 To investigate correctness of the algorithm two means are used.
 First, a test-suite.  Second, a TLA+ approximation of the algorithm is

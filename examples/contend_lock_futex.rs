@@ -20,7 +20,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 
-const NUM_LOOPS: usize = 200;
+const INITIAL_LOOPS: usize = 20;
+const NUM_LOOPS: usize = 20;
 const MAX_EXP: usize = 8;
 
 const UNLOCKED: u32 = 0;
@@ -43,7 +44,7 @@ impl RawMutex {
         RawMutex { val: DontShare::new(AtomicU32::new(UNLOCKED)) }
     }
 
-    pub fn try_lock<'r>(&'r self) -> Option<RawMutexGuard<'r>> {
+    fn try_lock<'r>(&'r self) -> Option<RawMutexGuard<'r>> {
         if self.val
             .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok() {
@@ -52,19 +53,47 @@ impl RawMutex {
         return None;
     }
 
-    pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
-        if let Err(newval) = self.val
-            .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed) {
-            if newval == LOCKED {
-                if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
-                    return RawMutexGuard { lock: self };
+    #[inline(never)]
+    fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
+        {
+            let mut counter = 0;
+            loop {
+                if let Some(guard) = self.try_lock() {
+                    return guard;
                 }
+
+                if counter > INITIAL_LOOPS {
+                    break;
+                }
+
+                thread::yield_now();
+
+                let exp = if counter < MAX_EXP {
+                    1 << counter
+                } else {
+                    1 << MAX_EXP
+                };
+
+                counter = counter.wrapping_add(1);
+
+                let spins = weakrand::rand(1, exp);
+
+                sleepfast::pause_times(spins as usize);
             }
-        } else {
-            return RawMutexGuard { lock: self };
+        }
+
+        if UNLOCKED == self.val.load(Ordering::Relaxed) {
+            if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                return RawMutexGuard { lock: self };
+            }
         }
 
         'big_loop: loop {
+            unsafe {
+                let val_ptr: usize = mem::transmute(&self.val);
+                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, LOCKED_WITH_WAITER, 0);
+            }
+
             let mut counter = 0;
             loop {
                 if UNLOCKED == self.val.load(Ordering::Relaxed) {
@@ -91,17 +120,13 @@ impl RawMutex {
 
                 sleepfast::pause_times(spins as usize);
             }
-
-            unsafe {
-                let val_ptr: usize = mem::transmute(&self.val);
-                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, LOCKED_WITH_WAITER, 0);
-            }
         }
 
         return RawMutexGuard { lock: self };
     }
 }
 impl<'r> Drop for RawMutexGuard<'r> {
+    #[inline(never)]
     fn drop(&mut self) {
         if self.lock.val.swap(UNLOCKED, Ordering::SeqCst) == LOCKED_WITH_WAITER {
             unsafe {

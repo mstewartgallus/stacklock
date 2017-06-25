@@ -17,7 +17,8 @@ use std::thread;
 use sleepfast;
 use weakrand;
 
-const NUM_LOOPS: usize = 200;
+const INITIAL_LOOPS: usize = 20;
+const NUM_LOOPS: usize = 20;
 const MAX_EXP: usize = 8;
 
 const UNLOCKED: u32 = 0;
@@ -50,18 +51,45 @@ impl RawMutex {
     }
 
     pub fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
-        if let Err(newval) = self.val
-            .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed) {
-            if newval == LOCKED {
-                if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
-                    return RawMutexGuard { lock: self };
+        {
+            let mut counter = 0;
+            loop {
+                if let Some(guard) = self.try_lock() {
+                    return guard;
                 }
+
+                if counter > INITIAL_LOOPS {
+                    break;
+                }
+
+                thread::yield_now();
+
+                let exp = if counter < MAX_EXP {
+                    1 << counter
+                } else {
+                    1 << MAX_EXP
+                };
+
+                counter = counter.wrapping_add(1);
+
+                let spins = weakrand::rand(1, exp);
+
+                sleepfast::pause_times(spins as usize);
             }
-        } else {
-            return RawMutexGuard { lock: self };
+        }
+
+        if UNLOCKED == self.val.load(Ordering::Relaxed) {
+            if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                return RawMutexGuard { lock: self };
+            }
         }
 
         'big_loop: loop {
+            unsafe {
+                let val_ptr: usize = mem::transmute(&self.val);
+                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, LOCKED_WITH_WAITER, 0);
+            }
+
             let mut counter = 0;
             loop {
                 if UNLOCKED == self.val.load(Ordering::Relaxed) {
@@ -87,10 +115,6 @@ impl RawMutex {
                 let spins = weakrand::rand(1, exp);
 
                 sleepfast::pause_times(spins as usize);
-            }
-            unsafe {
-                let val_ptr: usize = mem::transmute(&self.val);
-                syscall!(FUTEX, val_ptr, FUTEX_WAIT_PRIVATE, LOCKED_WITH_WAITER, 0);
             }
         }
 
