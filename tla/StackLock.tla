@@ -9,16 +9,38 @@ CONSTANT NUM_LOOPS
         Stack = <<>>,
         Lock = FALSE,
         Nodes = [ self \in ProcSet |-> defaultInitValue ];
+        
+    macro init_node(N) begin
+        Nodes[N] := FALSE;
+    end macro;
 
+    macro wait(N) begin
+        await Nodes[N];
+        Nodes[N] := defaultInitValue;
+    end macro;
+    
+    macro signal(N) begin
+        assert Nodes[N] = FALSE;
+        Nodes[N] := TRUE;
+    end macro;
+
+    macro push(Stack, N) begin
+        Stack := <<N>> \o Stack;
+    end macro;
+    
+    macro pop(Stack, Popped) begin
+        Popped := Head(Stack);
+        Stack := Tail(Stack);
+    end macro;
+    
     procedure lock()
     begin
     PUSH_NODE:
         if Lock then
-            Nodes[self] := FALSE;
-            Stack := <<self>> \o Stack;
+            init_node(self);
+            push(Stack, self);
         WAIT:
-            await Nodes[self];
-            Nodes[self] := defaultInitValue;
+            wait(self);
         else
             Lock := TRUE;
         end if;
@@ -34,10 +56,9 @@ CONSTANT NUM_LOOPS
         if Stack = <<>> then
             Lock := FALSE;
         else
-            Popped := Head(Stack);
-            Stack := Tail(Stack);
-            assert Nodes[Popped] = FALSE;
-            Nodes[Popped] := TRUE;
+            pop(Stack, Popped);
+        SIGNAL:
+            signal(Popped);
         end if;
     RET:
         return;
@@ -60,8 +81,8 @@ CONSTANT NUM_LOOPS
 end algorithm;
 *)
 \* BEGIN TRANSLATION
-\* Label RET of procedure lock at line 26 col 9 changed to RET_
-\* Label UNLOCK of procedure unlock at line 33 col 9 changed to UNLOCK_
+\* Label RET of procedure lock at line 48 col 9 changed to RET_
+\* Label UNLOCK of procedure unlock at line 55 col 9 changed to UNLOCK_
 CONSTANT defaultInitValue
 VARIABLES Stack, Lock, Nodes, pc, stack, Popped, Counter
 
@@ -106,19 +127,23 @@ lock(self) == PUSH_NODE(self) \/ WAIT(self) \/ RET_(self)
 
 UNLOCK_(self) == /\ pc[self] = "UNLOCK_"
                  /\ Assert(Lock, 
-                           "Failure of assertion at line 33, column 9.")
+                           "Failure of assertion at line 55, column 9.")
                  /\ IF Stack = <<>>
                        THEN /\ Lock' = FALSE
-                            /\ UNCHANGED << Stack, Nodes, Popped >>
+                            /\ pc' = [pc EXCEPT ![self] = "RET"]
+                            /\ UNCHANGED << Stack, Popped >>
                        ELSE /\ Popped' = [Popped EXCEPT ![self] = Head(Stack)]
                             /\ Stack' = Tail(Stack)
-                            /\ PrintT((Popped'[self]))
-                            /\ Assert(Nodes[Popped'[self]] = FALSE, 
-                                      "Failure of assertion at line 40, column 13.")
-                            /\ Nodes' = [Nodes EXCEPT ![Popped'[self]] = TRUE]
+                            /\ pc' = [pc EXCEPT ![self] = "SIGNAL"]
                             /\ Lock' = Lock
-                 /\ pc' = [pc EXCEPT ![self] = "RET"]
-                 /\ UNCHANGED << stack, Counter >>
+                 /\ UNCHANGED << Nodes, stack, Counter >>
+
+SIGNAL(self) == /\ pc[self] = "SIGNAL"
+                /\ Assert(Nodes[Popped[self]] = FALSE, 
+                          "Failure of assertion at line 23, column 9 of macro called at line 61, column 13.")
+                /\ Nodes' = [Nodes EXCEPT ![Popped[self]] = TRUE]
+                /\ pc' = [pc EXCEPT ![self] = "RET"]
+                /\ UNCHANGED << Stack, Lock, stack, Popped, Counter >>
 
 RET(self) == /\ pc[self] = "RET"
              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
@@ -126,7 +151,7 @@ RET(self) == /\ pc[self] = "RET"
              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
              /\ UNCHANGED << Stack, Lock, Nodes, Counter >>
 
-unlock(self) == UNLOCK_(self) \/ RET(self)
+unlock(self) == UNLOCK_(self) \/ SIGNAL(self) \/ RET(self)
 
 LOOP(self) == /\ pc[self] = "LOOP"
               /\ IF Counter[self] < NUM_LOOPS
@@ -140,7 +165,7 @@ LOOP(self) == /\ pc[self] = "LOOP"
 
 CS(self) == /\ pc[self] = "CS"
             /\ Assert(\A i \in 1..NUM_PROCESSES : (i = self) <=> (pc[i] = "CS"), 
-                      "Failure of assertion at line 54, column 13.")
+                      "Failure of assertion at line 74, column 13.")
             /\ pc' = [pc EXCEPT ![self] = "UNLOCK"]
             /\ UNCHANGED << Stack, Lock, Nodes, stack, Popped, Counter >>
 

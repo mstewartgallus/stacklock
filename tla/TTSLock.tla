@@ -15,6 +15,11 @@ CONSTANT NUM_LOOPS
         LOCKED == 1
         LOCKED_WITH_WAITERS == 2
     end define;
+    
+    macro swap(Lhs, New_Value, Result) begin
+        Result := Lhs;
+        Lhs := New_Value;
+    end macro;
 
     procedure lock()
         variables Tmp;
@@ -24,22 +29,27 @@ CONSTANT NUM_LOOPS
             Lock := LOCKED;
             return;
         elsif LOCKED = Lock then
+\* This is a test-and-test and set lock and so this needs to be a separate step.
         SWAP:
-            Tmp := Lock;
-            Lock := LOCKED_WITH_WAITERS;
+            swap(Lock, LOCKED_WITH_WAITERS, Tmp);
+\* Tmp does not get assigned until the next step.
+        RET:
             if UNLOCKED = Tmp then
-            RET:
                 return;
             end if;
         end if;
     LOOP:
         while TRUE do
-        ACQUIRE:
-            Tmp := Lock;
-            Lock := LOCKED_WITH_WAITERS;
-            if Tmp = UNLOCKED then
+        CHECK2:
+            if Lock /= LOCKED_WITH_WAITERS then
+\* This is a test-and-test and set lock and so this needs to be a separate step.
+            SWAP2:
+                swap(Lock, LOCKED_WITH_WAITERS, Tmp);            
+\* Tmp does not get assigned until the next step.
             RET2:
-                return;
+                if UNLOCKED = Tmp then
+                    return;
+                end if;
             end if;
         FUTEX_WAIT:
             await Semaphore;
@@ -50,14 +60,12 @@ CONSTANT NUM_LOOPS
     procedure unlock()
         variables Tmp;
     begin
-    DEC:
-        Tmp := Lock;
-        Lock := UNLOCKED;
+    SWAP:
+        swap(Lock, UNLOCKED, Tmp);
+    CHECK:
         if Tmp = LOCKED_WITH_WAITERS then
-        UNLOCK:
             Semaphore := TRUE;
         end if;
-    RET:
         return;
     end procedure
     
@@ -66,7 +74,9 @@ CONSTANT NUM_LOOPS
     begin
     LOOP:
         while Counter < NUM_LOOPS do
+        LOCK:
             call lock();
+\* Assert the critical section is only reachable by one process at at time.
         CS:
             assert \A i \in 1..NUM_PROCESSES : (i = self) <=> (pc[i] = "CS");
         UNLOCK:
@@ -78,10 +88,10 @@ CONSTANT NUM_LOOPS
 end algorithm;
 *)
 \* BEGIN TRANSLATION
-\* Label RET of procedure lock at line 32 col 17 changed to RET_
-\* Label LOOP of procedure lock at line 36 col 9 changed to LOOP_
-\* Label UNLOCK of procedure unlock at line 58 col 13 changed to UNLOCK_
-\* Procedure variable Tmp of procedure lock at line 20 col 19 changed to Tmp_
+\* Label CHECK of procedure lock at line 28 col 9 changed to CHECK_
+\* Label SWAP of procedure lock at line 20 col 9 changed to SWAP_
+\* Label LOOP of procedure lock at line 42 col 9 changed to LOOP_
+\* Procedure variable Tmp of procedure lock at line 25 col 19 changed to Tmp_
 CONSTANT defaultInitValue
 VARIABLES Lock, Semaphore, Nodes, pc, stack
 
@@ -109,49 +119,58 @@ Init == (* Global variables *)
         /\ stack = [self \in ProcSet |-> << >>]
         /\ pc = [self \in ProcSet |-> "LOOP"]
 
-CHECK(self) == /\ pc[self] = "CHECK"
-               /\ IF UNLOCKED = Lock
-                     THEN /\ Lock' = LOCKED
-                          /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-                          /\ Tmp_' = [Tmp_ EXCEPT ![self] = Head(stack[self]).Tmp_]
-                          /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                     ELSE /\ IF LOCKED = Lock
-                                THEN /\ pc' = [pc EXCEPT ![self] = "SWAP"]
-                                ELSE /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
-                          /\ UNCHANGED << Lock, stack, Tmp_ >>
-               /\ UNCHANGED << Semaphore, Nodes, Tmp, Counter >>
+CHECK_(self) == /\ pc[self] = "CHECK_"
+                /\ IF UNLOCKED = Lock
+                      THEN /\ Lock' = LOCKED
+                           /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                           /\ Tmp_' = [Tmp_ EXCEPT ![self] = Head(stack[self]).Tmp_]
+                           /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                      ELSE /\ IF LOCKED = Lock
+                                 THEN /\ pc' = [pc EXCEPT ![self] = "SWAP_"]
+                                 ELSE /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
+                           /\ UNCHANGED << Lock, stack, Tmp_ >>
+                /\ UNCHANGED << Semaphore, Nodes, Tmp, Counter >>
 
-SWAP(self) == /\ pc[self] = "SWAP"
-              /\ Tmp_' = [Tmp_ EXCEPT ![self] = Lock]
-              /\ Lock' = LOCKED_WITH_WAITERS
-              /\ IF UNLOCKED = Tmp_'[self]
-                    THEN /\ pc' = [pc EXCEPT ![self] = "RET_"]
-                    ELSE /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
-              /\ UNCHANGED << Semaphore, Nodes, stack, Tmp, Counter >>
+SWAP_(self) == /\ pc[self] = "SWAP_"
+               /\ Tmp_' = [Tmp_ EXCEPT ![self] = Lock]
+               /\ Lock' = LOCKED_WITH_WAITERS
+               /\ pc' = [pc EXCEPT ![self] = "RET"]
+               /\ UNCHANGED << Semaphore, Nodes, stack, Tmp, Counter >>
 
-RET_(self) == /\ pc[self] = "RET_"
-              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-              /\ Tmp_' = [Tmp_ EXCEPT ![self] = Head(stack[self]).Tmp_]
-              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-              /\ UNCHANGED << Lock, Semaphore, Nodes, Tmp, Counter >>
+RET(self) == /\ pc[self] = "RET"
+             /\ IF UNLOCKED = Tmp_[self]
+                   THEN /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                        /\ Tmp_' = [Tmp_ EXCEPT ![self] = Head(stack[self]).Tmp_]
+                        /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                   ELSE /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
+                        /\ UNCHANGED << stack, Tmp_ >>
+             /\ UNCHANGED << Lock, Semaphore, Nodes, Tmp, Counter >>
 
 LOOP_(self) == /\ pc[self] = "LOOP_"
-               /\ pc' = [pc EXCEPT ![self] = "ACQUIRE"]
+               /\ pc' = [pc EXCEPT ![self] = "CHECK2"]
                /\ UNCHANGED << Lock, Semaphore, Nodes, stack, Tmp_, Tmp, 
                                Counter >>
 
-ACQUIRE(self) == /\ pc[self] = "ACQUIRE"
-                 /\ Tmp_' = [Tmp_ EXCEPT ![self] = Lock]
-                 /\ Lock' = LOCKED_WITH_WAITERS
-                 /\ IF Tmp_'[self] = UNLOCKED
-                       THEN /\ pc' = [pc EXCEPT ![self] = "RET2"]
-                       ELSE /\ pc' = [pc EXCEPT ![self] = "FUTEX_WAIT"]
-                 /\ UNCHANGED << Semaphore, Nodes, stack, Tmp, Counter >>
+CHECK2(self) == /\ pc[self] = "CHECK2"
+                /\ IF Lock /= LOCKED_WITH_WAITERS
+                      THEN /\ pc' = [pc EXCEPT ![self] = "SWAP2"]
+                      ELSE /\ pc' = [pc EXCEPT ![self] = "FUTEX_WAIT"]
+                /\ UNCHANGED << Lock, Semaphore, Nodes, stack, Tmp_, Tmp, 
+                                Counter >>
+
+SWAP2(self) == /\ pc[self] = "SWAP2"
+               /\ Tmp_' = [Tmp_ EXCEPT ![self] = Lock]
+               /\ Lock' = LOCKED_WITH_WAITERS
+               /\ pc' = [pc EXCEPT ![self] = "RET2"]
+               /\ UNCHANGED << Semaphore, Nodes, stack, Tmp, Counter >>
 
 RET2(self) == /\ pc[self] = "RET2"
-              /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-              /\ Tmp_' = [Tmp_ EXCEPT ![self] = Head(stack[self]).Tmp_]
-              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+              /\ IF UNLOCKED = Tmp_[self]
+                    THEN /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                         /\ Tmp_' = [Tmp_ EXCEPT ![self] = Head(stack[self]).Tmp_]
+                         /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                    ELSE /\ pc' = [pc EXCEPT ![self] = "FUTEX_WAIT"]
+                         /\ UNCHANGED << stack, Tmp_ >>
               /\ UNCHANGED << Lock, Semaphore, Nodes, Tmp, Counter >>
 
 FUTEX_WAIT(self) == /\ pc[self] = "FUTEX_WAIT"
@@ -160,45 +179,47 @@ FUTEX_WAIT(self) == /\ pc[self] = "FUTEX_WAIT"
                     /\ pc' = [pc EXCEPT ![self] = "LOOP_"]
                     /\ UNCHANGED << Lock, Nodes, stack, Tmp_, Tmp, Counter >>
 
-lock(self) == CHECK(self) \/ SWAP(self) \/ RET_(self) \/ LOOP_(self)
-                 \/ ACQUIRE(self) \/ RET2(self) \/ FUTEX_WAIT(self)
+lock(self) == CHECK_(self) \/ SWAP_(self) \/ RET(self) \/ LOOP_(self)
+                 \/ CHECK2(self) \/ SWAP2(self) \/ RET2(self)
+                 \/ FUTEX_WAIT(self)
 
-DEC(self) == /\ pc[self] = "DEC"
-             /\ Tmp' = [Tmp EXCEPT ![self] = Lock]
-             /\ Lock' = UNLOCKED
-             /\ IF Tmp'[self] = LOCKED_WITH_WAITERS
-                   THEN /\ pc' = [pc EXCEPT ![self] = "UNLOCK_"]
-                   ELSE /\ pc' = [pc EXCEPT ![self] = "RET"]
-             /\ UNCHANGED << Semaphore, Nodes, stack, Tmp_, Counter >>
+SWAP(self) == /\ pc[self] = "SWAP"
+              /\ Tmp' = [Tmp EXCEPT ![self] = Lock]
+              /\ Lock' = UNLOCKED
+              /\ pc' = [pc EXCEPT ![self] = "CHECK"]
+              /\ UNCHANGED << Semaphore, Nodes, stack, Tmp_, Counter >>
 
-UNLOCK_(self) == /\ pc[self] = "UNLOCK_"
-                 /\ Semaphore' = TRUE
-                 /\ pc' = [pc EXCEPT ![self] = "RET"]
-                 /\ UNCHANGED << Lock, Nodes, stack, Tmp_, Tmp, Counter >>
+CHECK(self) == /\ pc[self] = "CHECK"
+               /\ IF Tmp[self] = LOCKED_WITH_WAITERS
+                     THEN /\ Semaphore' = TRUE
+                     ELSE /\ TRUE
+                          /\ UNCHANGED Semaphore
+               /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+               /\ Tmp' = [Tmp EXCEPT ![self] = Head(stack[self]).Tmp]
+               /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+               /\ UNCHANGED << Lock, Nodes, Tmp_, Counter >>
 
-RET(self) == /\ pc[self] = "RET"
-             /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-             /\ Tmp' = [Tmp EXCEPT ![self] = Head(stack[self]).Tmp]
-             /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-             /\ UNCHANGED << Lock, Semaphore, Nodes, Tmp_, Counter >>
-
-unlock(self) == DEC(self) \/ UNLOCK_(self) \/ RET(self)
+unlock(self) == SWAP(self) \/ CHECK(self)
 
 LOOP(self) == /\ pc[self] = "LOOP"
               /\ IF Counter[self] < NUM_LOOPS
-                    THEN /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "lock",
-                                                                  pc        |->  "CS",
-                                                                  Tmp_      |->  Tmp_[self] ] >>
-                                                              \o stack[self]]
-                         /\ Tmp_' = [Tmp_ EXCEPT ![self] = defaultInitValue]
-                         /\ pc' = [pc EXCEPT ![self] = "CHECK"]
+                    THEN /\ pc' = [pc EXCEPT ![self] = "LOCK"]
                     ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-                         /\ UNCHANGED << stack, Tmp_ >>
+              /\ UNCHANGED << Lock, Semaphore, Nodes, stack, Tmp_, Tmp, 
+                              Counter >>
+
+LOCK(self) == /\ pc[self] = "LOCK"
+              /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "lock",
+                                                       pc        |->  "CS",
+                                                       Tmp_      |->  Tmp_[self] ] >>
+                                                   \o stack[self]]
+              /\ Tmp_' = [Tmp_ EXCEPT ![self] = defaultInitValue]
+              /\ pc' = [pc EXCEPT ![self] = "CHECK_"]
               /\ UNCHANGED << Lock, Semaphore, Nodes, Tmp, Counter >>
 
 CS(self) == /\ pc[self] = "CS"
             /\ Assert(\A i \in 1..NUM_PROCESSES : (i = self) <=> (pc[i] = "CS"), 
-                      "Failure of assertion at line 71, column 13.")
+                      "Failure of assertion at line 81, column 13.")
             /\ pc' = [pc EXCEPT ![self] = "UNLOCK"]
             /\ UNCHANGED << Lock, Semaphore, Nodes, stack, Tmp_, Tmp, Counter >>
 
@@ -208,7 +229,7 @@ UNLOCK(self) == /\ pc[self] = "UNLOCK"
                                                          Tmp       |->  Tmp[self] ] >>
                                                      \o stack[self]]
                 /\ Tmp' = [Tmp EXCEPT ![self] = defaultInitValue]
-                /\ pc' = [pc EXCEPT ![self] = "DEC"]
+                /\ pc' = [pc EXCEPT ![self] = "SWAP"]
                 /\ UNCHANGED << Lock, Semaphore, Nodes, Tmp_, Counter >>
 
 COUNT(self) == /\ pc[self] = "COUNT"
@@ -216,7 +237,8 @@ COUNT(self) == /\ pc[self] = "COUNT"
                /\ pc' = [pc EXCEPT ![self] = "LOOP"]
                /\ UNCHANGED << Lock, Semaphore, Nodes, stack, Tmp_, Tmp >>
 
-p(self) == LOOP(self) \/ CS(self) \/ UNLOCK(self) \/ COUNT(self)
+p(self) == LOOP(self) \/ LOCK(self) \/ CS(self) \/ UNLOCK(self)
+              \/ COUNT(self)
 
 Next == (\E self \in ProcSet: lock(self) \/ unlock(self))
            \/ (\E self \in 1..NUM_PROCESSES: p(self))
