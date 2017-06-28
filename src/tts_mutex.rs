@@ -79,7 +79,7 @@ impl RawMutex {
             }
         }
 
-        if UNLOCKED == self.val.load(Ordering::Relaxed) {
+        if self.val.load(Ordering::Relaxed) != LOCKED_WITH_WAITER {
             if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
                 return;
             }
@@ -93,7 +93,7 @@ impl RawMutex {
 
             let mut counter = 0;
             loop {
-                if UNLOCKED == self.val.load(Ordering::Relaxed) {
+                if self.val.load(Ordering::Relaxed) != LOCKED_WITH_WAITER {
                     if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
                         break 'big_loop;
                     }
