@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.  See the License for the specific language governing
 // permissions and limitations under the License.
+use libc;
 use dontshare::DontShare;
 use weakrand;
 use sleepfast;
@@ -20,16 +21,17 @@ use tts_mutex;
 
 use std::thread;
 
+const NUM_FALLBACK: usize = 2;
 const MAX_EXP: usize = 8;
 const LOOPS: usize = 10;
 
 // A simple test-and test and set lock causes lots of intercore
 // commmunication when contended by lots of threads.  A StackMutex has
 // a bunch of overhead.  Use a test-and-test and set lock that falls
-// back to a StackMutex under heavy contention.
+// back to separate StackMutexs under heavy contention.
 pub struct RawMutex {
     spin_mutex: DontShare<tts_mutex::RawMutex>,
-    fallback: DontShare<stack_mutex::RawMutex>,
+    fallback: [DontShare<stack_mutex::RawMutex>; NUM_FALLBACK],
 }
 unsafe impl Send for RawMutex {}
 unsafe impl Sync for RawMutex {}
@@ -39,7 +41,8 @@ impl RawMutex {
     pub fn new() -> Self {
         RawMutex {
             spin_mutex: DontShare::new(tts_mutex::RawMutex::new()),
-            fallback: DontShare::new(stack_mutex::RawMutex::new()),
+            fallback: [DontShare::new(stack_mutex::RawMutex::new()),
+                       DontShare::new(stack_mutex::RawMutex::new())],
         }
     }
 
@@ -68,12 +71,13 @@ impl RawMutex {
             sleepfast::pause_times(spins as usize);
         }
 
+        let lock = shuffle(unsafe { libc::sched_getcpu() } as usize) as usize % NUM_FALLBACK;
         {
-            self.fallback.lock();
+            self.fallback[lock].lock();
 
             self.spin_mutex.lock();
 
-            self.fallback.unlock();
+            self.fallback[lock].unlock();
         }
     }
 
@@ -81,3 +85,12 @@ impl RawMutex {
         self.spin_mutex.unlock();
     }
 }
+
+fn shuffle(x: usize) -> u8 {
+    SHUFFLE[x % SHUFFLE.len()]
+}
+
+// 32 cores is enough for anybody ;)
+// Pseudo-randomly shuffle core ids to avoid CPU topology issues
+const SHUFFLE: [u8; 32] = [25, 16, 24, 13, 20, 0, 18, 21, 9, 23, 5, 19, 15, 11, 28, 14, 10, 29,
+                           30, 7, 1, 6, 27, 26, 3, 8, 2, 12, 4, 17, 22, 31];
