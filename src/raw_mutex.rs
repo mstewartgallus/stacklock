@@ -71,7 +71,8 @@ impl RawMutex {
             sleepfast::pause_times(spins as usize);
         }
 
-        let lock = shuffle(unsafe { libc::sched_getcpu() } as usize) as usize % NUM_FALLBACK;
+        let cpu = unsafe { libc::sched_getcpu() } as usize;
+        let lock = cpu as usize % NUM_FALLBACK;
         {
             self.fallback[lock].lock();
 
@@ -85,12 +86,3 @@ impl RawMutex {
         self.spin_mutex.unlock();
     }
 }
-
-fn shuffle(x: usize) -> u8 {
-    SHUFFLE[x % SHUFFLE.len()]
-}
-
-// 32 cores is enough for anybody ;)
-// Pseudo-randomly shuffle core ids to avoid CPU topology issues
-const SHUFFLE: [u8; 32] = [25, 16, 24, 13, 20, 0, 18, 21, 9, 23, 5, 19, 15, 11, 28, 14, 10, 29,
-                           30, 7, 1, 6, 27, 26, 3, 8, 2, 12, 4, 17, 22, 31];
