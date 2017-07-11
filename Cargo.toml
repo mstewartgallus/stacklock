@@ -7,16 +7,12 @@ readme = "README"
 license = "Apache-2.0"
 categories = ["concurrency", "data-structures"]
 
-[features]
-lin-log = ["lazy_static"]
-
 [dependencies]
 sleepfast = "1.0"
 dontshare = "1.0"
 weakrand = "1.0"
 syscall = "0.2"
 libc = "0.2"
-lazy_static = { version = "0.2", optional = true }
 
 [dev-dependencies]
 parking_lot = { version = "0.4" }

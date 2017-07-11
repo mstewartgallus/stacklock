@@ -16,10 +16,6 @@
 #![feature(const_fn)]
 #![feature(integer_atomics)]
 
-#[cfg(feature = "lin-log")]
-#[macro_use]
-extern crate lazy_static;
-
 #[macro_use]
 extern crate syscall;
 
