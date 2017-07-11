@@ -15,7 +15,6 @@
 #![feature(asm)]
 #![feature(const_fn)]
 #![feature(integer_atomics)]
-#![feature(hint_core_should_pause)]
 
 #[cfg(feature = "lin-log")]
 #[macro_use]
@@ -31,7 +30,6 @@ extern crate sleepfast;
 extern crate dontshare;
 extern crate weakrand;
 
-mod notifier;
 mod raw_mutex;
 mod stack_mutex;
 mod tts_mutex;
@@ -68,12 +66,12 @@ impl<T> Mutex<T> {
 }
 
 impl<T: ?Sized> Mutex<T> {
-    pub fn lock<'r>(&'r self) -> MutexGuard<'r, T> {
+    pub fn lock(&self) -> MutexGuard<T> {
         self.mutex.lock();
-        return MutexGuard {
+        MutexGuard {
             lock: self,
             _phantom: PhantomData,
-        };
+        }
     }
 }
 

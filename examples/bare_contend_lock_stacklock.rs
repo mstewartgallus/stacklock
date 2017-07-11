@@ -32,17 +32,16 @@ fn main() {
         args.iter().skip(1).map(|s| s.parse::<usize>().unwrap()).collect();
 
     let test_borrow = &contend::STANDARD_TESTS;
-    let inputs;
-    if num_threads.len() > 0 {
-        inputs = num_threads.as_slice().iter();
+    let inputs = if num_threads.is_empty() {
+        test_borrow.iter()
     } else {
-        inputs = test_borrow.iter();
-    }
+        num_threads.as_slice().iter()
+    };
     for &input in inputs {
         let phantom: PhantomData<MyTestCase> = PhantomData;
         contend(phantom,
                 |f| {
-                    for _ in 0..1000 {
+                    for _ in 0..100 {
                         f();
                     }
                 },

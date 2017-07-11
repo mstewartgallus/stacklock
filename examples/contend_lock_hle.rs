@@ -35,7 +35,7 @@ impl Hle {
     }
 
     #[inline(never)]
-    fn lock<'r>(&'r self) -> HleGuard<'r> {
+    fn lock(&self) -> HleGuard {
         if self.val.load(Ordering::Relaxed) == 0 {
             let mut prev: u32 = 1;
             unsafe {
@@ -116,6 +116,6 @@ impl TestCase for MyTestCase {
 fn main() {
     let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_hle",
-                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
+                                                    |b, &&n| contend(phantom, |f| b.iter(f), n),
                                                     contend::STANDARD_TESTS.iter());
 }

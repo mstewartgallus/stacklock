@@ -21,7 +21,7 @@ use dontshare::DontShare;
 use sleepfast;
 use weakrand;
 
-use notifier::Notifier;
+use tts_mutex;
 
 const MAX_EXP: usize = 8;
 
@@ -36,8 +36,14 @@ pub struct RawMutex {
 unsafe impl Send for RawMutex {}
 unsafe impl Sync for RawMutex {}
 
+impl Default for RawMutex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RawMutex {
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         RawMutex { head: AtomicAba::new(Aba::new(ptr::null_mut(), 0, false)) }
     }
@@ -95,7 +101,7 @@ impl RawMutex {
 
             let mut counter = 0;
             loop {
-                if ptr::null_mut() == head.ptr() {
+                if head.ptr().is_null() {
                     // Release the lock on an empty stack
                     let new = Aba::new(ptr::null_mut(), head.tag().wrapping_add(1), false);
                     if let Err(newhead) = self.head
@@ -141,25 +147,25 @@ impl RawMutex {
 }
 
 struct Node {
-    notifier: Notifier,
+    notifier: DontShare<tts_mutex::RawMutex>,
     next: DontShare<*mut Node>,
 }
 
 impl Node {
-    #[inline(always)]
+    #[inline]
     fn new() -> Node {
         Node {
-            notifier: Notifier::new(),
+            notifier: DontShare::new(tts_mutex::RawMutex::new_locked()),
             next: DontShare::new(ptr::null_mut()),
         }
     }
 
     fn signal(&self) {
-        self.notifier.signal();
+        self.notifier.unlock();
     }
 
     fn wait(&self) {
-        self.notifier.wait();
+        self.notifier.lock();
     }
 }
 
@@ -181,7 +187,7 @@ const PTR_OFFSET: u64 = LOCKED_SIZE + TAG_SIZE;
 const PTR_SIZE: u64 = 41;
 
 impl Aba {
-    #[inline(always)]
+    #[inline]
     fn new(node: *mut Node, tag: u32, locked: bool) -> Self {
         unsafe {
             let lock_bit: u64 = if locked { 1 } else { 0 };
@@ -203,10 +209,8 @@ impl Aba {
     }
 
     fn ptr(&self) -> *mut Node {
-        unsafe {
-            let node_bits = self.get(PTR_OFFSET, PTR_SIZE) << ZERO_BITS;
-            mem::transmute(node_bits)
-        }
+        let node_bits = self.get(PTR_OFFSET, PTR_SIZE) << ZERO_BITS;
+        node_bits as *mut Node
     }
     fn tag(&self) -> u32 {
         let tag_bits = self.get(TAG_OFFSET, TAG_SIZE);
@@ -222,7 +226,7 @@ struct AtomicAba {
     ptr: AtomicU64,
 }
 impl AtomicAba {
-    #[inline(always)]
+    #[inline]
     fn new(ptr: Aba) -> Self {
         AtomicAba { ptr: AtomicU64::new(ptr.ptr) }
     }
@@ -246,6 +250,6 @@ impl AtomicAba {
                 Ok(x) => return Ok(Aba { ptr: x }),
             }
         }
-        return Err(Aba { ptr: dblcheck });
+        Err(Aba { ptr: dblcheck })
     }
 }

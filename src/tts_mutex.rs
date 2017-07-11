@@ -29,13 +29,23 @@ const LOCKED_WITH_WAITER: u32 = 2;
 pub struct RawMutex {
     val: AtomicU32,
 }
-const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
+const FUTEX_WAIT_PRIVATE: usize = 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
+impl Default for RawMutex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RawMutex {
-    #[inline(always)]
+    #[inline]
     pub fn new() -> RawMutex {
         RawMutex { val: AtomicU32::new(UNLOCKED) }
+    }
+
+    pub fn new_locked() -> RawMutex {
+        RawMutex { val: AtomicU32::new(LOCKED) }
     }
 
     pub fn try_lock(&self) -> bool {
@@ -43,12 +53,9 @@ impl RawMutex {
             return false;
         }
 
-        if self.val
+        self.val
             .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
-            .is_ok() {
-            return true;
-        }
-        return false;
+            .is_ok()
     }
 
     pub fn lock(&self) {
@@ -79,10 +86,9 @@ impl RawMutex {
             }
         }
 
-        if self.val.load(Ordering::Relaxed) != LOCKED_WITH_WAITER {
-            if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
-                return;
-            }
+        if self.val.load(Ordering::Relaxed) != LOCKED_WITH_WAITER &&
+           UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+            return;
         }
 
         'big_loop: loop {
@@ -93,10 +99,9 @@ impl RawMutex {
 
             let mut counter = 0;
             loop {
-                if self.val.load(Ordering::Relaxed) != LOCKED_WITH_WAITER {
-                    if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
-                        break 'big_loop;
-                    }
+                if self.val.load(Ordering::Relaxed) != LOCKED_WITH_WAITER &&
+                   UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                    break 'big_loop;
                 }
 
                 if counter > NUM_LOOPS {

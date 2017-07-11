@@ -50,7 +50,7 @@ impl Ticket {
     }
 
     #[inline(never)]
-    fn lock<'r>(&'r self) -> TicketGuard<'r> {
+    fn lock(&self) -> TicketGuard {
         let my_ticket = self.high.fetch_add(1, Ordering::AcqRel);
         let mut current_ticket;
         loop {
@@ -69,12 +69,11 @@ impl Ticket {
                 if counter % YIELD_INTERVAL == YIELD_INTERVAL - 1 {
                     thread::yield_now();
                 }
-                let exp;
-                if counter > MAX_EXP {
-                    exp = 1 << MAX_EXP;
+                let exp = if counter > MAX_EXP {
+                    1 << MAX_EXP
                 } else {
-                    exp = 1 << counter;
-                }
+                    1 << counter
+                };
                 sleepfast::pause_times(weakrand::rand(1, exp) as usize);
                 counter = counter.wrapping_add(1);
             }
@@ -140,6 +139,6 @@ impl TestCase for MyTestCase {
 fn main() {
     let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_ticket",
-                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
+                                                    |b, &&n| contend(phantom, |f| b.iter(f), n),
                                                     contend::STANDARD_TESTS.iter());
 }

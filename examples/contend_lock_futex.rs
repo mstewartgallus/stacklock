@@ -30,22 +30,22 @@ const LOCKED: u32 = 1;
 const LOCKED_WITH_WAITER: u32 = 2;
 
 /// This is basically Ulrich-Drepper's futexes are tricky futex lock
-pub struct RawMutex {
+struct RawMutex {
     val: DontShare<AtomicU32>,
 }
-pub struct RawMutexGuard<'r> {
+struct RawMutexGuard<'r> {
     lock: &'r RawMutex,
 }
-const FUTEX_WAIT_PRIVATE: usize = 0 | 128;
+const FUTEX_WAIT_PRIVATE: usize = 128;
 const FUTEX_WAKE_PRIVATE: usize = 1 | 128;
 
 impl RawMutex {
-    #[inline(always)]
-    pub fn new() -> RawMutex {
+    #[inline]
+    fn new() -> RawMutex {
         RawMutex { val: DontShare::new(AtomicU32::new(UNLOCKED)) }
     }
 
-    fn try_lock<'r>(&'r self) -> Option<RawMutexGuard<'r>> {
+    fn try_lock(&self) -> Option<RawMutexGuard> {
         if self.val.load(Ordering::Relaxed) != UNLOCKED {
             return None;
         }
@@ -53,13 +53,14 @@ impl RawMutex {
         if self.val
             .compare_exchange_weak(UNLOCKED, LOCKED, Ordering::SeqCst, Ordering::Relaxed)
             .is_ok() {
-            return Some(RawMutexGuard { lock: self });
+            Some(RawMutexGuard { lock: self })
+        } else {
+            None
         }
-        return None;
     }
 
     #[inline(never)]
-    fn lock<'r>(&'r self) -> RawMutexGuard<'r> {
+    fn lock(&self) -> RawMutexGuard {
         {
             let mut counter = 0;
             loop {
@@ -87,10 +88,9 @@ impl RawMutex {
             }
         }
 
-        if UNLOCKED == self.val.load(Ordering::Relaxed) {
-            if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
-                return RawMutexGuard { lock: self };
-            }
+        if UNLOCKED == self.val.load(Ordering::Relaxed) &&
+           UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+            return RawMutexGuard { lock: self };
         }
 
         'big_loop: loop {
@@ -101,10 +101,9 @@ impl RawMutex {
 
             let mut counter = 0;
             loop {
-                if UNLOCKED == self.val.load(Ordering::Relaxed) {
-                    if UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
-                        break 'big_loop;
-                    }
+                if UNLOCKED == self.val.load(Ordering::Relaxed) &&
+                   UNLOCKED == self.val.swap(LOCKED_WITH_WAITER, Ordering::SeqCst) {
+                    break 'big_loop;
                 }
 
                 if counter > NUM_LOOPS {
@@ -127,7 +126,7 @@ impl RawMutex {
             }
         }
 
-        return RawMutexGuard { lock: self };
+        RawMutexGuard { lock: self }
     }
 }
 impl<'r> Drop for RawMutexGuard<'r> {
@@ -162,6 +161,6 @@ impl TestCase for MyTestCase {
 fn main() {
     let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_futex",
-                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
+                                                    |b, &&n| contend(phantom, |f| b.iter(f), n),
                                                     contend::STANDARD_TESTS.iter());
 }

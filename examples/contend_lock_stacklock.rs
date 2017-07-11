@@ -34,14 +34,13 @@ fn main() {
         args.iter().skip(1).map(|s| s.parse::<usize>().unwrap()).collect();
 
     let test_borrow = &contend::STANDARD_TESTS;
-    let inputs;
-    if num_threads.len() > 0 {
-        inputs = num_threads.as_slice().iter();
+    let inputs = if num_threads.is_empty() {
+        test_borrow.iter()
     } else {
-        inputs = test_borrow.iter();
-    }
+        num_threads.as_slice().iter()
+    };
     let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_stacklock",
-                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
+                                                    |b, &&n| contend(phantom, |f| b.iter(f), n),
                                                     inputs);
 }

@@ -36,8 +36,14 @@ pub struct RawMutex {
 unsafe impl Send for RawMutex {}
 unsafe impl Sync for RawMutex {}
 
+impl Default for RawMutex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RawMutex {
-    #[inline(always)]
+    #[inline]
     pub fn new() -> Self {
         RawMutex {
             spin_mutex: DontShare::new(tts_mutex::RawMutex::new()),

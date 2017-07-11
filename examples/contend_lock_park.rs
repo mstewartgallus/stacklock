@@ -29,6 +29,6 @@ impl TestCase for MyTestCase {
 fn main() {
     let phantom: PhantomData<MyTestCase> = PhantomData;
     Criterion::default().bench_function_over_inputs("contend_lock_park",
-                                                    |b, &&n| contend(phantom, |f| { b.iter(|| f()) }, n),
+                                                    |b, &&n| contend(phantom, |f| b.iter(f), n),
                                                     contend::STANDARD_TESTS.iter());
 }
